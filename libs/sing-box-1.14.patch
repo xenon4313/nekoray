@@ -41,3 +41,507 @@ index 3e96f42d..6b8a83b9 100644
  func (s *SbStatsService) GetStats(ctx context.Context, name string, reset bool) (int64, error) {
  	s.access.Lock()
  	counter, loaded := s.counters[name]
+diff --git a/constant/dns.go b/constant/dns.go
+index d0268806..b1516049 100644
+--- a/constant/dns.go
++++ b/constant/dns.go
+@@ -16,6 +16,7 @@ const (
+ 
+ const (
+ 	DNSTypeLegacy      = "legacy"
++	DNSTypeLegacyRcode = "legacy_rcode"
+ 	DNSTypeUDP         = "udp"
+ 	DNSTypeTCP         = "tcp"
+ 	DNSTypeTLS         = "tls"
+diff --git a/option/dns.go b/option/dns.go
+index 1180a622..0e1e610f 100644
+--- a/option/dns.go
++++ b/option/dns.go
+@@ -3,16 +3,20 @@ package option
+ import (
+ 	"context"
+ 	"net/netip"
++	"net/url"
+ 	"reflect"
+ 
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/schema"
++	"github.com/sagernet/sing/common"
+ 	E "github.com/sagernet/sing/common/exceptions"
+ 	"github.com/sagernet/sing/common/json"
+ 	"github.com/sagernet/sing/common/json/badjson"
+ 	"github.com/sagernet/sing/common/json/badoption"
+ 	M "github.com/sagernet/sing/common/metadata"
+ 	"github.com/sagernet/sing/service"
++
++	"github.com/miekg/dns"
+ )
+ 
+ type RawDNSOptions struct {
+@@ -23,29 +27,118 @@ type RawDNSOptions struct {
+ 	DNSClientOptions
+ }
+ 
++type LegacyDNSFakeIPOptions struct {
++	Enabled    bool              `json:"enabled,omitempty"`
++	Inet4Range *badoption.Prefix `json:"inet4_range,omitempty"`
++	Inet6Range *badoption.Prefix `json:"inet6_range,omitempty"`
++}
++
++type LegacyDNSOptions struct {
++	FakeIP *LegacyDNSFakeIPOptions `json:"fakeip,omitempty"`
++}
++
+ type DNSOptions struct {
+ 	RawDNSOptions
++	LegacyDNSOptions
+ }
+ 
+-const (
+-	legacyDNSFakeIPRemovedMessage = "legacy DNS fakeip options are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+-	legacyDNSServerRemovedMessage = "legacy DNS server formats are deprecated in sing-box 1.12.0 and removed in sing-box 1.14.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats"
+-)
++type contextKeyDontUpgrade struct{}
++
++func ContextWithDontUpgrade(ctx context.Context) context.Context {
++	return context.WithValue(ctx, (*contextKeyDontUpgrade)(nil), true)
++}
++
++func dontUpgradeFromContext(ctx context.Context) bool {
++	return ctx.Value((*contextKeyDontUpgrade)(nil)) == true
++}
++
++type legacyDNSUpgradeContextKey struct{}
+ 
+-type removedLegacyDNSOptions struct {
+-	FakeIP json.RawMessage `json:"fakeip,omitempty"`
++type legacyDNSUpgradeInfo struct {
++	strategies    map[string]DomainStrategy
++	clientSubnets map[string]*badoption.Prefixable
+ }
+ 
+ func (o *DNSOptions) UnmarshalJSONContext(ctx context.Context, content []byte) error {
+-	var legacyOptions removedLegacyDNSOptions
++	var legacyOptions LegacyDNSOptions
+ 	err := json.UnmarshalContext(ctx, content, &legacyOptions)
+ 	if err != nil {
+ 		return err
+ 	}
+-	if len(legacyOptions.FakeIP) != 0 {
+-		return E.New(legacyDNSFakeIPRemovedMessage)
++	dontUpgrade := dontUpgradeFromContext(ctx)
++	if !dontUpgrade {
++		if legacyOptions.FakeIP != nil && legacyOptions.FakeIP.Enabled {
++			ctx = context.WithValue(ctx, (*LegacyDNSFakeIPOptions)(nil), legacyOptions.FakeIP)
++		}
++	}
++	upgradeInfo := &legacyDNSUpgradeInfo{
++		strategies:    make(map[string]DomainStrategy),
++		clientSubnets: make(map[string]*badoption.Prefixable),
++	}
++	ctx = context.WithValue(ctx, (*legacyDNSUpgradeContextKey)(nil), upgradeInfo)
++
++	err = badjson.UnmarshallExcludedContext(ctx, content, legacyOptions, &o.RawDNSOptions)
++	if err != nil {
++		return err
++	}
++	if !dontUpgrade {
++		rcodeMap := make(map[string]int)
++		o.Servers = common.Filter(o.Servers, func(it DNSServerOptions) bool {
++			if it.Type == C.DNSTypeLegacyRcode {
++				rcodeMap[it.Tag] = it.Options.(int)
++				return false
++			}
++			return true
++		})
++		if len(rcodeMap) > 0 {
++			for i := 0; i < len(o.Rules); i++ {
++				rewriteRcode(rcodeMap, &o.Rules[i])
++			}
++		}
++		for i := range o.Rules {
++			rule := &o.Rules[i]
++			if rule.Type == "" || rule.Type == C.RuleTypeDefault {
++				if rule.DefaultOptions.DNSRuleAction.Action == "" || rule.DefaultOptions.DNSRuleAction.Action == C.RuleActionTypeRoute {
++					serverTag := rule.DefaultOptions.DNSRuleAction.RouteOptions.Server
++					if st, ok := upgradeInfo.strategies[serverTag]; ok && rule.DefaultOptions.DNSRuleAction.RouteOptions.Strategy == 0 {
++						rule.DefaultOptions.DNSRuleAction.RouteOptions.Strategy = st
++					}
++					if cs, ok := upgradeInfo.clientSubnets[serverTag]; ok && rule.DefaultOptions.DNSRuleAction.RouteOptions.ClientSubnet == nil {
++						rule.DefaultOptions.DNSRuleAction.RouteOptions.ClientSubnet = cs
++					}
++				}
++			}
++		}
++		if o.Strategy == 0 {
++			if st, ok := upgradeInfo.strategies[o.Final]; ok && st != 0 {
++				o.Strategy = st
++			} else if st, ok := upgradeInfo.strategies["dns-direct"]; ok && st != 0 {
++				o.Strategy = st
++			}
++		}
++	}
++	return nil
++}
++
++func rewriteRcode(rcodeMap map[string]int, rule *DNSRule) {
++	switch rule.Type {
++	case C.RuleTypeDefault:
++		rewriteRcodeAction(rcodeMap, &rule.DefaultOptions.DNSRuleAction)
++	case C.RuleTypeLogical:
++		rewriteRcodeAction(rcodeMap, &rule.LogicalOptions.DNSRuleAction)
++	}
++}
++
++func rewriteRcodeAction(rcodeMap map[string]int, ruleAction *DNSRuleAction) {
++	if ruleAction.Action != C.RuleActionTypeRoute {
++		return
++	}
++	rcode, loaded := rcodeMap[ruleAction.RouteOptions.Server]
++	if !loaded {
++		return
+ 	}
+-	return badjson.UnmarshallExcludedContext(ctx, content, legacyOptions, &o.RawDNSOptions)
++	ruleAction.Action = C.RuleActionTypePredefined
++	ruleAction.PredefinedOptions.Rcode = common.Ptr(DNSRCode(rcode))
+ }
+ 
+ func (o DNSOptions) DescribeSchema(builder schema.Builder) (*schema.Node, error) {
+@@ -114,6 +207,10 @@ type _DNSServerOptions struct {
+ type DNSServerOptions _DNSServerOptions
+ 
+ func (o *DNSServerOptions) MarshalJSONContext(ctx context.Context) ([]byte, error) {
++	switch o.Type {
++	case C.DNSTypeLegacy:
++		o.Type = ""
++	}
+ 	return badjson.MarshallObjectsContext(ctx, (*_DNSServerOptions)(o), o.Options)
+ }
+ 
+@@ -129,7 +226,8 @@ func (o *DNSServerOptions) UnmarshalJSONContext(ctx context.Context, content []b
+ 	var options any
+ 	switch o.Type {
+ 	case "", C.DNSTypeLegacy:
+-		return E.New(legacyDNSServerRemovedMessage)
++		o.Type = C.DNSTypeLegacy
++		options = new(LegacyDNSServerOptions)
+ 	default:
+ 		var loaded bool
+ 		options, loaded = registry.CreateOptions(o.Type)
+@@ -142,6 +240,186 @@ func (o *DNSServerOptions) UnmarshalJSONContext(ctx context.Context, content []b
+ 		return err
+ 	}
+ 	o.Options = options
++	if o.Type == C.DNSTypeLegacy && !dontUpgradeFromContext(ctx) {
++		err = o.Upgrade(ctx)
++		if err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++type LegacyDNSServerOptions struct {
++	Address              string                `json:"address"`
++	AddressResolver      string                `json:"address_resolver,omitempty"`
++	AddressStrategy      DomainStrategy        `json:"address_strategy,omitempty"`
++	AddressFallbackDelay badoption.Duration    `json:"address_fallback_delay,omitempty"`
++	Strategy             DomainStrategy        `json:"strategy,omitempty"`
++	Detour               string                `json:"detour,omitempty"`
++	ClientSubnet         *badoption.Prefixable `json:"client_subnet,omitempty"`
++}
++
++func (o *DNSServerOptions) Upgrade(ctx context.Context) error {
++	if o.Type != C.DNSTypeLegacy {
++		return nil
++	}
++	options := o.Options.(*LegacyDNSServerOptions)
++	if info, loaded := ctx.Value((*legacyDNSUpgradeContextKey)(nil)).(*legacyDNSUpgradeInfo); loaded && o.Tag != "" {
++		if options.Strategy != 0 {
++			info.strategies[o.Tag] = options.Strategy
++		}
++		if options.ClientSubnet != nil {
++			info.clientSubnets[o.Tag] = options.ClientSubnet
++		}
++	}
++	serverURL, _ := url.Parse(options.Address)
++	var serverType string
++	if serverURL != nil && serverURL.Scheme != "" {
++		serverType = serverURL.Scheme
++	} else {
++		switch options.Address {
++		case "local", "fakeip":
++			serverType = options.Address
++		default:
++			serverType = C.DNSTypeUDP
++		}
++	}
++	var domainResolver *DomainResolveOptions
++	if options.AddressResolver != "" {
++		domainResolver = &DomainResolveOptions{
++			Server:   options.AddressResolver,
++			Strategy: options.AddressStrategy,
++		}
++	}
++	remoteOptions := RemoteDNSServerOptions{
++		RawLocalDNSServerOptions: RawLocalDNSServerOptions{
++			DialerOptions: DialerOptions{
++				Detour: options.Detour,
++				AbstractDialerOptions: AbstractDialerOptions{
++					DomainResolver: domainResolver,
++					FallbackDelay:  options.AddressFallbackDelay,
++				},
++			},
++		},
++	}
++	switch serverType {
++	case C.DNSTypeLocal:
++		o.Type = C.DNSTypeLocal
++		o.Options = &LocalDNSServerOptions{
++			RawLocalDNSServerOptions: remoteOptions.RawLocalDNSServerOptions,
++		}
++	case C.DNSTypeUDP:
++		o.Type = C.DNSTypeUDP
++		o.Options = &remoteOptions
++		var serverAddr M.Socksaddr
++		if serverURL == nil || serverURL.Scheme == "" {
++			serverAddr = M.ParseSocksaddr(options.Address)
++		} else {
++			serverAddr = M.ParseSocksaddr(serverURL.Host)
++		}
++		if !serverAddr.IsValid() {
++			return E.New("invalid server address")
++		}
++		remoteOptions.Server = serverAddr.AddrString()
++		if serverAddr.Port != 0 && serverAddr.Port != 53 {
++			remoteOptions.ServerPort = serverAddr.Port
++		}
++	case C.DNSTypeTCP:
++		o.Type = C.DNSTypeTCP
++		o.Options = &remoteOptions
++		if serverURL == nil {
++			return E.New("invalid server address")
++		}
++		serverAddr := M.ParseSocksaddr(serverURL.Host)
++		if !serverAddr.IsValid() {
++			return E.New("invalid server address")
++		}
++		remoteOptions.Server = serverAddr.AddrString()
++		if serverAddr.Port != 0 && serverAddr.Port != 53 {
++			remoteOptions.ServerPort = serverAddr.Port
++		}
++	case C.DNSTypeTLS, C.DNSTypeQUIC:
++		o.Type = serverType
++		if serverURL == nil {
++			return E.New("invalid server address")
++		}
++		serverAddr := M.ParseSocksaddr(serverURL.Host)
++		if !serverAddr.IsValid() {
++			return E.New("invalid server address")
++		}
++		remoteOptions.Server = serverAddr.AddrString()
++		if serverAddr.Port != 0 && serverAddr.Port != 853 {
++			remoteOptions.ServerPort = serverAddr.Port
++		}
++		o.Options = &RemoteTLSDNSServerOptions{
++			RemoteDNSServerOptions: remoteOptions,
++		}
++	case C.DNSTypeHTTPS, C.DNSTypeHTTP3:
++		o.Type = serverType
++		httpsOptions := RemoteHTTPSDNSServerOptions{
++			RemoteTLSDNSServerOptions: RemoteTLSDNSServerOptions{
++				RemoteDNSServerOptions: remoteOptions,
++			},
++		}
++		o.Options = &httpsOptions
++		if serverURL == nil {
++			return E.New("invalid server address")
++		}
++		serverAddr := M.ParseSocksaddr(serverURL.Host)
++		if !serverAddr.IsValid() {
++			return E.New("invalid server address")
++		}
++		httpsOptions.Server = serverAddr.AddrString()
++		if serverAddr.Port != 0 && serverAddr.Port != 443 {
++			httpsOptions.ServerPort = serverAddr.Port
++		}
++		if serverURL.Path != "" && serverURL.Path != "/dns-query" {
++			httpsOptions.Path = serverURL.Path
++		}
++	case "rcode":
++		var rcode int
++		if serverURL == nil {
++			return E.New("invalid server address")
++		}
++		switch serverURL.Host {
++		case "success":
++			rcode = dns.RcodeSuccess
++		case "format_error":
++			rcode = dns.RcodeFormatError
++		case "server_failure":
++			rcode = dns.RcodeServerFailure
++		case "name_error":
++			rcode = dns.RcodeNameError
++		case "not_implemented":
++			rcode = dns.RcodeNotImplemented
++		case "refused":
++			rcode = dns.RcodeRefused
++		default:
++			return E.New("unknown rcode: ", serverURL.Host)
++		}
++		o.Type = C.DNSTypeLegacyRcode
++		o.Options = rcode
++	case C.DNSTypeDHCP:
++		o.Type = C.DNSTypeDHCP
++		dhcpOptions := DHCPDNSServerOptions{}
++		if serverURL == nil {
++			return E.New("invalid server address")
++		}
++		if serverURL.Host != "" && serverURL.Host != "auto" {
++			dhcpOptions.Interface = serverURL.Host
++		}
++		o.Options = &dhcpOptions
++	case C.DNSTypeFakeIP:
++		o.Type = C.DNSTypeFakeIP
++		fakeipOptions := FakeIPDNSServerOptions{}
++		if legacyOptions, loaded := ctx.Value((*LegacyDNSFakeIPOptions)(nil)).(*LegacyDNSFakeIPOptions); loaded {
++			fakeipOptions.Inet4Range = legacyOptions.Inet4Range
++			fakeipOptions.Inet6Range = legacyOptions.Inet6Range
++		}
++		o.Options = &fakeipOptions
++	default:
++		return E.New("unsupported DNS server scheme: ", serverType)
++	}
+ 	return nil
+ }
+ 
+diff --git a/option/dns_test.go b/option/dns_test.go
+index 312ae471..892adfdc 100644
+--- a/option/dns_test.go
++++ b/option/dns_test.go
+@@ -2,6 +2,7 @@ package option
+ 
+ import (
+ 	"context"
++	"net/netip"
+ 	"testing"
+ 
+ 	C "github.com/sagernet/sing-box/constant"
+@@ -14,7 +15,7 @@ import (
+ type stubDNSTransportOptionsRegistry struct{}
+ 
+ func (stubDNSTransportOptionsRegistry) OptionTypes() []string {
+-	return []string{C.DNSTypeUDP, C.DNSTypeFakeIP}
++	return []string{C.DNSTypeUDP, C.DNSTypeFakeIP, C.DNSTypeLocal, C.DNSTypeHTTPS}
+ }
+ 
+ func (stubDNSTransportOptionsRegistry) CreateOptions(transportType string) (any, bool) {
+@@ -23,26 +24,39 @@ func (stubDNSTransportOptionsRegistry) CreateOptions(transportType string) (any,
+ 		return new(RemoteDNSServerOptions), true
+ 	case C.DNSTypeFakeIP:
+ 		return new(FakeIPDNSServerOptions), true
++	case C.DNSTypeLocal:
++		return new(LocalDNSServerOptions), true
++	case C.DNSTypeHTTPS:
++		return new(RemoteHTTPSDNSServerOptions), true
+ 	default:
+ 		return nil, false
+ 	}
+ }
+ 
+-func TestDNSOptionsRejectsLegacyFakeIPOptions(t *testing.T) {
++func TestDNSOptionsUpgradesLegacyFakeIPOptions(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	ctx := service.ContextWith[DNSTransportOptionsRegistry](context.Background(), stubDNSTransportOptionsRegistry{})
+ 	var options DNSOptions
+ 	err := json.UnmarshalContext(ctx, []byte(`{
++		"servers": [
++			{"tag": "fake", "address": "fakeip"}
++		],
+ 		"fakeip": {
+ 			"enabled": true,
+ 			"inet4_range": "198.18.0.0/15"
+ 		}
+ 	}`), &options)
+-	require.EqualError(t, err, legacyDNSFakeIPRemovedMessage)
++	require.NoError(t, err)
++	require.Len(t, options.Servers, 1)
++	require.Equal(t, C.DNSTypeFakeIP, options.Servers[0].Type)
++	fakeipOpts, ok := options.Servers[0].Options.(*FakeIPDNSServerOptions)
++	require.True(t, ok)
++	require.NotNil(t, fakeipOpts.Inet4Range)
++	require.Equal(t, "198.18.0.0/15", fakeipOpts.Inet4Range.Build(netip.Prefix{}).String())
+ }
+ 
+-func TestDNSServerOptionsRejectsLegacyFormats(t *testing.T) {
++func TestDNSServerOptionsUpgradesLegacyFormats(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	ctx := service.ContextWith[DNSTransportOptionsRegistry](context.Background(), stubDNSTransportOptionsRegistry{})
+@@ -53,6 +67,64 @@ func TestDNSServerOptionsRejectsLegacyFormats(t *testing.T) {
+ 	for _, content := range testCases {
+ 		var options DNSServerOptions
+ 		err := json.UnmarshalContext(ctx, []byte(content), &options)
+-		require.EqualError(t, err, legacyDNSServerRemovedMessage)
++		require.NoError(t, err)
++		require.Equal(t, C.DNSTypeUDP, options.Type)
++		remoteOpts, ok := options.Options.(*RemoteDNSServerOptions)
++		require.True(t, ok)
++		require.Equal(t, "1.1.1.1", remoteOpts.Server)
+ 	}
+ }
++
++func TestDNSOptionsUpgradesFullNekoBoxConfig(t *testing.T) {
++	t.Parallel()
++
++	ctx := service.ContextWith[DNSTransportOptionsRegistry](context.Background(), stubDNSTransportOptionsRegistry{})
++	var options DNSOptions
++	err := json.UnmarshalContext(ctx, []byte(`{
++		"servers": [
++			{
++				"tag": "dns-direct",
++				"address_resolver": "dns-local",
++				"strategy": "prefer_ipv4",
++				"address": "https://1.1.1.1/dns-query",
++				"detour": "direct"
++			},
++			{
++				"tag": "dns-block",
++				"address": "rcode://success"
++			},
++			{
++				"tag": "dns-local",
++				"address": "local",
++				"detour": "direct"
++			}
++		],
++		"rules": [
++			{
++				"outbound": "any",
++				"server": "dns-direct"
++			},
++			{
++				"query_type": [32, 33],
++				"server": "dns-block"
++			}
++		]
++	}`), &options)
++	require.NoError(t, err)
++	// dns-block was filtered out, so 2 servers remain: dns-direct (https) and dns-local (local)
++	require.Len(t, options.Servers, 2)
++	require.Equal(t, "dns-direct", options.Servers[0].Tag)
++	require.Equal(t, C.DNSTypeHTTPS, options.Servers[0].Type)
++	require.Equal(t, "dns-local", options.Servers[1].Tag)
++	require.Equal(t, C.DNSTypeLocal, options.Servers[1].Type)
++
++	// rules:
++	require.Len(t, options.Rules, 2)
++	// First rule routes to dns-direct with inherited strategy prefer_ipv4
++	require.Equal(t, "dns-direct", options.Rules[0].DefaultOptions.DNSRuleAction.RouteOptions.Server)
++	require.Equal(t, DomainStrategy(C.DomainStrategyPreferIPv4), options.Rules[0].DefaultOptions.DNSRuleAction.RouteOptions.Strategy)
++	// Second rule was rewritten to predefined rcode
++	require.Equal(t, C.RuleActionTypePredefined, options.Rules[1].DefaultOptions.DNSRuleAction.Action)
++	require.NotNil(t, options.Rules[1].DefaultOptions.DNSRuleAction.PredefinedOptions.Rcode)
++	require.Equal(t, 0, int(*options.Rules[1].DefaultOptions.DNSRuleAction.PredefinedOptions.Rcode))
++}
