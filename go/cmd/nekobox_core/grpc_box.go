@@ -32,8 +32,9 @@ func (n *nekoLogWriter) WriteMessage(level singlog.Level, message string) {
 }
 
 func createBox(ctx context.Context, configBytes []byte) (*box.Box, context.CancelFunc, error) {
-	var options option.Options
-	err := json.UnmarshalContext(ctx, configBytes, &options)
+	baseCtx := include.Context(context.Background())
+
+	options, err := json.UnmarshalExtendedContext[option.Options](baseCtx, configBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -42,7 +43,7 @@ func createBox(ctx context.Context, configBytes []byte) (*box.Box, context.Cance
 	}
 	options.Log.DisableColor = true
 
-	boxCtx, cancel := context.WithCancel(include.Context(ctx))
+	boxCtx, cancel := context.WithCancel(baseCtx)
 	instance, err := box.New(box.Options{
 		Context:           boxCtx,
 		Options:           options,
