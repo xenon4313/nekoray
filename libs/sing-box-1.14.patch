@@ -1,0 +1,43 @@
+diff --git a/boxapi/go_net.go b/boxapi/go_net.go
+index 5a7637d1..aa968ab1 100644
+--- a/boxapi/go_net.go
++++ b/boxapi/go_net.go
+@@ -21,3 +21,8 @@ func DialContext(ctx context.Context, box *box.Box, tracker adapter.ConnectionTr
+ 	}
+ 	return conn, nil
+ }
++
++func DialUDP(ctx context.Context, box *box.Box) (net.PacketConn, error) {
++	defOutboundTag := box.Outbound().Default().Tag()
++	return dialer.NewDetour(box.Outbound(), defOutboundTag, true).ListenPacket(ctx, metadata.Socksaddr{})
++}
+diff --git a/boxapi/v2ray_stats_service.go b/boxapi/v2ray_stats_service.go
+index 3e96f42d..6b8a83b9 100644
+--- a/boxapi/v2ray_stats_service.go
++++ b/boxapi/v2ray_stats_service.go
+@@ -9,11 +9,14 @@ import (
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-box/option"
++	"github.com/sagernet/sing-tun"
+ 	"github.com/sagernet/sing/common/bufio"
+ 	E "github.com/sagernet/sing/common/exceptions"
+ 	N "github.com/sagernet/sing/common/network"
+ )
+ 
++var _ adapter.ConnectionTracker = (*SbStatsService)(nil)
++
+ type SbStatsService struct {
+ 	createdAt time.Time
+ 	inbounds  map[string]bool
+@@ -115,6 +118,10 @@ func (s *SbStatsService) RoutedPacketConnection(ctx context.Context, conn N.Pack
+ 	return bufio.NewInt64CounterPacketConn(conn, readCounter, nil, writeCounter, nil)
+ }
+ 
++func (s *SbStatsService) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
++	return nil
++}
++
+ func (s *SbStatsService) GetStats(ctx context.Context, name string, reset bool) (int64, error) {
+ 	s.access.Lock()
+ 	counter, loaded := s.counters[name]

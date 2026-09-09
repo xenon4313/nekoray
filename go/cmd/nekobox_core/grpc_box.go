@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 
 	"grpc_server"
 	"grpc_server/gen"
@@ -13,12 +15,50 @@ import (
 	"github.com/matsuridayo/libneko/speedtest"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/boxapi"
-	boxmain "github.com/sagernet/sing-box/cmd/sing-box"
-
-	"log"
-
+	"github.com/sagernet/sing-box/include"
+	singlog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/common/json"
 )
+
+type nekoLogWriter struct {
+	w io.Writer
+}
+
+func (n *nekoLogWriter) WriteMessage(level singlog.Level, message string) {
+	if n.w != nil {
+		n.w.Write([]byte(message + "\n"))
+	}
+}
+
+func createBox(ctx context.Context, configBytes []byte) (*box.Box, context.CancelFunc, error) {
+	var options option.Options
+	err := json.UnmarshalContext(ctx, configBytes, &options)
+	if err != nil {
+		return nil, nil, err
+	}
+	if options.Log == nil {
+		options.Log = &option.LogOptions{}
+	}
+	options.Log.DisableColor = true
+
+	boxCtx, cancel := context.WithCancel(include.Context(ctx))
+	instance, err := box.New(box.Options{
+		Context:           boxCtx,
+		Options:           options,
+		PlatformLogWriter: &nekoLogWriter{w: neko_log.LogWriter},
+	})
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	err = instance.Start()
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return instance, cancel, nil
+}
 
 type server struct {
 	grpc_server.BaseServer
@@ -46,11 +86,9 @@ func (s *server) Start(ctx context.Context, in *gen.LoadConfigReq) (out *gen.Err
 		return
 	}
 
-	instance, instance_cancel, err = boxmain.Create([]byte(in.CoreConfig))
+	instance, instance_cancel, err = createBox(ctx, []byte(in.CoreConfig))
 
 	if instance != nil {
-		// Logger
-		instance.SetLogWritter(neko_log.LogWriter)
 		// Connection details tracker (process / FQDN / IP)
 		instance_conn = newNekoConnTracker(instance.Outbound())
 		instance.Router().AppendTracker(instance_conn)
@@ -106,7 +144,7 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 		var cancel context.CancelFunc
 		if in.Config != nil {
 			// Test instance
-			i, cancel, err = boxmain.Create([]byte(in.Config.CoreConfig))
+			i, cancel, err = createBox(ctx, []byte(in.Config.CoreConfig))
 			if i != nil {
 				defer i.Close()
 				defer cancel()
@@ -126,7 +164,9 @@ func (s *server) Test(ctx context.Context, in *gen.TestReq) (out *gen.TestResp, 
 	} else if in.Mode == gen.TestMode_TcpPing {
 		out.Ms, err = speedtest.TcpPing(in.Address, in.Timeout)
 	} else if in.Mode == gen.TestMode_FullTest {
-		i, cancel, err := boxmain.Create([]byte(in.Config.CoreConfig))
+		var cancel context.CancelFunc
+		var i *box.Box
+		i, cancel, err = createBox(ctx, []byte(in.Config.CoreConfig))
 		if i != nil {
 			defer i.Close()
 			defer cancel()

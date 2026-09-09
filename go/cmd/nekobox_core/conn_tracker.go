@@ -9,28 +9,33 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
+	"github.com/sagernet/sing-box/common/trafficcontrol"
+	"github.com/sagernet/sing-tun"
 	N "github.com/sagernet/sing/common/network"
 )
 
 type nekoConnTracker struct {
-	manager  *trafficontrol.Manager
-	outbound adapter.OutboundManager
+	manager *trafficcontrol.Manager
 }
 
 func newNekoConnTracker(outbound adapter.OutboundManager) *nekoConnTracker {
+	m := trafficcontrol.NewManager(outbound)
+	_ = m.Start(adapter.StartStateInitialize)
 	return &nekoConnTracker{
-		manager:  trafficontrol.NewManager(),
-		outbound: outbound,
+		manager: m,
 	}
 }
 
 func (t *nekoConnTracker) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
-	return trafficontrol.NewTCPTracker(conn, t.manager, metadata, t.outbound, matchedRule, matchOutbound)
+	return t.manager.RoutedConnection(ctx, conn, metadata, matchedRule, matchOutbound)
 }
 
 func (t *nekoConnTracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
-	return trafficontrol.NewUDPTracker(conn, t.manager, metadata, t.outbound, matchedRule, matchOutbound)
+	return t.manager.RoutedPacketConnection(ctx, conn, metadata, matchedRule, matchOutbound)
+}
+
+func (t *nekoConnTracker) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
+	return t.manager.RoutedFlow(ctx, metadata, matchedRule, matchOutbound)
 }
 
 type nekoConnJSON struct {
@@ -51,7 +56,7 @@ type nekoConnJSON struct {
 	Active      bool   `json:"Active"`
 }
 
-func metadataToJSON(meta trafficontrol.TrackerMetadata, active bool) nekoConnJSON {
+func metadataToJSON(meta *trafficcontrol.TrackerMetadata, active bool) nekoConnJSON {
 	host := meta.Metadata.Domain
 	if host == "" {
 		host = meta.Metadata.Destination.Fqdn
@@ -70,8 +75,8 @@ func metadataToJSON(meta trafficontrol.TrackerMetadata, active bool) nekoConnJSO
 		processPath = meta.Metadata.ProcessInfo.ProcessPath
 		if processPath != "" {
 			processName = filepath.Base(processPath)
-		} else if meta.Metadata.ProcessInfo.PackageName != "" {
-			processName = meta.Metadata.ProcessInfo.PackageName
+		} else if len(meta.Metadata.ProcessInfo.AndroidPackageNames) > 0 {
+			processName = meta.Metadata.ProcessInfo.AndroidPackageNames[0]
 			processPath = processName
 		}
 	}

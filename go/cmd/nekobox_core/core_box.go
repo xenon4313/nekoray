@@ -10,7 +10,6 @@ import (
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/boxapi"
-	boxmain "github.com/sagernet/sing-box/cmd/sing-box"
 )
 
 var instance *box.Box
@@ -19,7 +18,6 @@ var instance_stats *boxapi.SbV2rayServer
 var instance_conn *nekoConnTracker
 
 func setupCore() {
-	boxmain.SetDisableColor(true)
 	//
 	neko_log.SetupLog(50*1024, "./neko.log")
 	//

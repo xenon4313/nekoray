@@ -13,7 +13,7 @@ if [ ! -d "sing-box" ]; then
 fi
 pushd sing-box
 git checkout "$COMMIT_SING_BOX"
-
+git apply "$SRC_ROOT/libs/sing-box-1.14.patch" 2>/dev/null || true
 popd
 
 ####
