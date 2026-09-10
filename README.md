@@ -8,7 +8,7 @@ Qt-based cross-platform GUI proxy configuration manager. Backend: **sing-box 1.1
 
 This repository is an enhanced, maintained fork of [r3t4rd/nekoray](https://github.com/r3t4rd/nekoray) and [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray), tailored for high performance, modern protocol support, and refined desktop UX.
 
-**Current release version:** `5.4.1-singbox-1.14.0`  
+**Current release version:** `1.1-singbox-1.14.0`  
 **Supported platforms:** Windows x64 (portable ZIP), Linux
 
 ---
@@ -43,7 +43,7 @@ This repository is an enhanced, maintained fork of [r3t4rd/nekoray](https://gith
 #### Arch Linux / Manjaro / EndeavourOS
 Install the prebuilt `.pkg.tar.zst` package via `pacman`:
 ```bash
-sudo pacman -U nekobox-bin-5.4.1-1-x86_64.pkg.tar.zst
+sudo pacman -U nekobox-bin-1.1-x86_64.pkg.tar.zst
 ```
 Or build locally from AUR sources:
 ```bash
@@ -53,15 +53,15 @@ cd release/aur && makepkg -si
 #### Debian / Ubuntu / Linux Mint / Pop!_OS
 Install the official `.deb` package:
 ```bash
-sudo apt install ./nekobox_5.4.1-1_amd64.deb
+sudo apt install ./nekobox_1.1_amd64.deb
 # or
-sudo dpkg -i nekobox_5.4.1-1_amd64.deb && sudo apt -f install
+sudo dpkg -i nekobox_1.1_amd64.deb && sudo apt -f install
 ```
 
 #### Generic Linux (Universal Portable & Installer)
 Extract the portable bundle and run the universal installer:
 ```bash
-tar -xzf nekobox-5.4.1-singbox-1.14.0-linux64.tar.gz
+tar -xzf nekobox-1.1-linux64.tar.gz
 cd nekobox-linux64
 sudo ./install.sh
 ```
