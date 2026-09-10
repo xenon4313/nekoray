@@ -64,7 +64,7 @@ SimpleModeWidget::SimpleModeWidget(QWidget *parent) : QWidget(parent) {
     speedDirect = new QLabel(this);
     for (auto *l: {speedProxy, speedDirect}) {
         l->setAlignment(Qt::AlignCenter);
-        l->setStyleSheet("font-size: 11px; font-weight: 600; background: transparent;");
+        l->setStyleSheet("font-size: 11px; font-weight: bold; color: #000000; background: transparent;");
     }
     updateSpeedLabels(0, 0, 0, 0);
 
@@ -365,17 +365,11 @@ bool SimpleModeWidget::isConnectionBusy() const {
 
 void SimpleModeWidget::updateSpeedLabels(qint64 proxyUpRate, qint64 proxyDownRate,
                                          qint64 directUpRate, qint64 directDownRate) {
-    speedProxy->setText(QStringLiteral("<span style='color:%1'>Proxy ↑ %2</span>  "
-                                       "<span style='color:%3'>↓ %4</span>")
-                            .arg(TrafficSparkline::colorProxyUp().name(),
-                                 ReadableSize(proxyUpRate) + "/s",
-                                 TrafficSparkline::colorProxyDown().name(),
+    speedProxy->setText(QStringLiteral("<span style='color:#000000; font-weight:bold;'>Proxy ↑ %1  ↓ %2</span>")
+                            .arg(ReadableSize(proxyUpRate) + "/s",
                                  ReadableSize(proxyDownRate) + "/s"));
-    speedDirect->setText(QStringLiteral("<span style='color:%1'>Direct ↑ %2</span>  "
-                                        "<span style='color:%3'>↓ %4</span>")
-                             .arg(TrafficSparkline::colorDirectUp().name(),
-                                  ReadableSize(directUpRate) + "/s",
-                                  TrafficSparkline::colorDirectDown().name(),
+    speedDirect->setText(QStringLiteral("<span style='color:#000000; font-weight:bold;'>Direct ↑ %1  ↓ %2</span>")
+                             .arg(ReadableSize(directUpRate) + "/s",
                                   ReadableSize(directDownRate) + "/s"));
 }
 
