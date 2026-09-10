@@ -36,7 +36,7 @@ This repository is an enhanced, maintained fork of [r3t4rd/nekoray](https://gith
 
 Portable builds (no installer required). Extract and run `nekobox.exe`.
 
-**Releases:** https://github.com/r3t4rd/nekoray/releases
+**Releases:** https://github.com/xenon4313/nekoray/releases
 
 Windows asset naming example:
 
