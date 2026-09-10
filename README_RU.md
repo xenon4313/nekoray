@@ -1,3 +1,5 @@
+# [English](https://github.com/xenon4313/nekoray/blob/main/README.md) | #Русский
+
 # NekoBox (Форк sing-box 1.14)
 
 <img src="https://pu.yufu.su/2yYFkWZi.png" width="1234" alt="Скриншот NekoBox"/>
