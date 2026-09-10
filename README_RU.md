@@ -34,23 +34,50 @@
 
 ---
 
-## Скачивание
+## Скачивание и установка
 
-Портативные сборки (установка не требуется). Распакуйте архив и запустите `nekobox.exe`.
+**Релизы на GitHub:** https://github.com/xenon4313/nekoray/releases
 
-**Релизы:** https://github.com/xenon4313/nekoray/releases
+### 🐧 Linux
 
-Примеры наименования файлов для Windows:
-
-```text
-nekobox-5.4.1-singbox-1.14.0-windows64.zip
-nekobox-portable-windows64.zip
+#### Arch Linux / Manjaro / EndeavourOS
+Установка готового `.pkg.tar.zst` пакета через `pacman`:
+```bash
+sudo pacman -U nekobox-bin-5.4.1-1-x86_64.pkg.tar.zst
+```
+Либо локальная сборка из каталога `aur/`:
+```bash
+cd release/aur && makepkg -si
 ```
 
+#### Debian / Ubuntu / Linux Mint / Pop!_OS
+Установка официального `.deb` пакета:
+```bash
+sudo apt install ./nekobox_5.4.1-1_amd64.deb
+# или
+sudo dpkg -i nekobox_5.4.1-1_amd64.deb && sudo apt -f install
+```
+
+#### Универсальная установка (любой дистрибутив Linux)
+Распакуйте архив и запустите встроенный инсталлятор:
+```bash
+tar -xzf nekobox-5.4.1-singbox-1.14.0-linux64.tar.gz
+cd nekobox-linux64
+sudo ./install.sh
+```
+> [!TIP]
+> Инсталляторы автоматически настраивают правило Polkit (`99-nekobox.rules`) и capabilities `cap_net_admin=ep` для `nekobox_core`. Благодаря этому режим TUN/VPN запускается **без ввода root-пароля**.
+
+### 🪟 Windows
+
+Портативные сборки (установка не требуется). Распакуйте архив и запустите `nekobox.exe`:
+```text
+nekobox-5.4.1-singbox-1.14.0-windows64.zip
+```
 Если на чистой системе Windows сообщает об отсутствии необходимых DLL, установите [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 
 > [!IMPORTANT]
-> Не удаляйте исполняемый файл `nekobox_core.exe` и файлы баз данных `geo*`, расположенные рядом с `nekobox.exe`.
+> Не удаляйте исполняемый файл `nekobox_core.exe` (или `nekobox_core` на Linux) и базы данных `geo*`, расположенные рядом с `nekobox`.
 
 ---
 
