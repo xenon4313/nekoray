@@ -210,8 +210,16 @@ namespace NekoGui_fmt {
             }
             QUrlQuery q;
             if (!obfsPassword.isEmpty()) {
-                q.addQueryItem("obfs", "salamander");
-                q.addQueryItem("obfs-password", obfsPassword);
+                if (obfsPassword.startsWith("gecko:")) {
+                    q.addQueryItem("obfs", "gecko");
+                    auto parts = obfsPassword.mid(6).split(":");
+                    q.addQueryItem("obfs-password", parts[0]);
+                    if (parts.size() > 1 && !parts[1].isEmpty()) q.addQueryItem("obfs-min-size", parts[1]);
+                    if (parts.size() > 2 && !parts[2].isEmpty()) q.addQueryItem("obfs-max-size", parts[2]);
+                } else {
+                    q.addQueryItem("obfs", "salamander");
+                    q.addQueryItem("obfs-password", obfsPassword);
+                }
             }
             if (!hopPort.trimmed().isEmpty()) q.addQueryItem("mport", hopPort);
             if (allowInsecure) q.addQueryItem("insecure", "1");

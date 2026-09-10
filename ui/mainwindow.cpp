@@ -17,6 +17,7 @@
 #include "ui/dialog_manage_routes.h"
 #include "ui/dialog_vpn_settings.h"
 #include "ui/dialog_hotkey.h"
+#include "ui/dialog_theme_select.h"
 #include "ui/widget/DetailsPanel.h"
 #include "ui/widget/StatsPanel.h"
 #include "ui/widget/SimpleModeWidget.h"
@@ -112,6 +113,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->toolButton_preferences->setVisible(false);
     ui->toolButton_server->setMenu(ui->menu_server);
     ui->menubar->setVisible(false);
+    ui->toolButton_update->setVisible(false);
     connect(ui->toolButton_update, &QToolButton::clicked, this, [=] { runOnNewThread([=] { CheckUpdate(); }); });
     connect(ui->toolButton_url_test, &QToolButton::clicked, this, [=] { speedtest_current_group(1, true); });
     connect(ui->toolButton_cancel_action, &QToolButton::clicked, this, [=] { cancelLastAction(); });
@@ -136,9 +138,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     simpleMode->hide();
     connect(simpleMode, &SimpleModeWidget::requestAdvancedMode, this, &MainWindow::showAdvancedMode);
     connect(simpleMode, &SimpleModeWidget::requestToggleBackground, this, [=] {
-        NekoGui::dataStore->ui_simple_bg = (NekoGui::dataStore->ui_simple_bg == 2) ? 1 : 2;
-        NekoGui::dataStore->Save();
-        simpleMode->reloadBackground();
+        ThemeSelectDialog dlg(this);
+        connect(&dlg, &ThemeSelectDialog::themeApplied, this, [=] {
+            simpleMode->reloadBackground();
+        });
+        dlg.exec();
     });
     connect(simpleMode, &SimpleModeWidget::requestEditRules, this, [=] {
         // Merge scheme Custom Route + Custom Route (global) — users often edit either one

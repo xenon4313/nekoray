@@ -41,6 +41,25 @@ index 3e96f42d..6b8a83b9 100644
  func (s *SbStatsService) GetStats(ctx context.Context, name string, reset bool) (int64, error) {
  	s.access.Lock()
  	counter, loaded := s.counters[name]
+diff --git a/common/dialer/detour.go b/common/dialer/detour.go
+index b2fc3efa..8c667f68 100644
+--- a/common/dialer/detour.go
++++ b/common/dialer/detour.go
+@@ -66,14 +66,6 @@ func (d *DetourDialer) init() {
+ 	} else {
+ 		dialer = d.outboundManager.Default()
+ 	}
+-	if !d.defaultOutbound && !d.disableEmptyDirectCheck {
+-		if directDialer, isDirect := dialer.(DirectDialer); isDirect {
+-			if directDialer.IsEmpty() {
+-				d.initErr = E.New("detour to an empty direct outbound makes no sense")
+-				return
+-			}
+-		}
+-	}
+ 	d.dialer = dialer
+ }
+ 
 diff --git a/constant/dns.go b/constant/dns.go
 index d0268806..b1516049 100644
 --- a/constant/dns.go
@@ -53,6 +72,37 @@ index d0268806..b1516049 100644
  	DNSTypeUDP         = "udp"
  	DNSTypeTCP         = "tcp"
  	DNSTypeTLS         = "tls"
+diff --git a/dns/transport_dialer.go b/dns/transport_dialer.go
+index 971002ac..467ec979 100644
+--- a/dns/transport_dialer.go
++++ b/dns/transport_dialer.go
+@@ -10,17 +10,19 @@ import (
+ 
+ func NewLocalDialer(ctx context.Context, options option.LocalDNSServerOptions) (N.Dialer, error) {
+ 	return dialer.NewWithOptions(dialer.Options{
+-		Context:        ctx,
+-		Options:        options.DialerOptions,
+-		DirectResolver: true,
++		Context:                 ctx,
++		Options:                 options.DialerOptions,
++		DirectResolver:          true,
++		DisableEmptyDirectCheck: true,
+ 	})
+ }
+ 
+ func NewRemoteDialer(ctx context.Context, options option.RemoteDNSServerOptions) (N.Dialer, error) {
+ 	return dialer.NewWithOptions(dialer.Options{
+-		Context:        ctx,
+-		Options:        options.DialerOptions,
+-		RemoteIsDomain: options.ServerIsDomain(),
+-		DirectResolver: true,
++		Context:                 ctx,
++		Options:                 options.DialerOptions,
++		RemoteIsDomain:          options.ServerIsDomain(),
++		DirectResolver:          true,
++		DisableEmptyDirectCheck: true,
+ 	})
+ }
 diff --git a/option/dns.go b/option/dns.go
 index 1180a622..0e1e610f 100644
 --- a/option/dns.go
@@ -545,3 +595,407 @@ index 312ae471..892adfdc 100644
 +	require.NotNil(t, options.Rules[1].DefaultOptions.DNSRuleAction.PredefinedOptions.Rcode)
 +	require.Equal(t, 0, int(*options.Rules[1].DefaultOptions.DNSRuleAction.PredefinedOptions.Rcode))
 +}
+diff --git a/option/hysteria2.go b/option/hysteria2.go
+index 68832de9..a409d293 100644
+--- a/option/hysteria2.go
++++ b/option/hysteria2.go
+@@ -3,6 +3,8 @@ package option
+ import (
+ 	"net/url"
+ 	"reflect"
++	"strconv"
++	"strings"
+ 
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/schema"
+@@ -81,6 +83,21 @@ func (o *Hysteria2Obfs) UnmarshalJSON(bytes []byte) error {
+ 	if err != nil {
+ 		return err
+ 	}
++	if o.Type == C.Hysteria2ObfsTypeSalamander && strings.HasPrefix(o.Password, "gecko:") {
++		o.Type = C.Hysteria2ObfsTypeGecko
++		parts := strings.Split(strings.TrimPrefix(o.Password, "gecko:"), ":")
++		o.Password = parts[0]
++		if len(parts) > 1 {
++			if minSize, parseErr := strconv.Atoi(parts[1]); parseErr == nil {
++				o.GeckoOptions.MinPacketSize = minSize
++			}
++		}
++		if len(parts) > 2 {
++			if maxSize, parseErr := strconv.Atoi(parts[2]); parseErr == nil {
++				o.GeckoOptions.MaxPacketSize = maxSize
++			}
++		}
++	}
+ 	var v any
+ 	switch o.Type {
+ 	case C.Hysteria2ObfsTypeSalamander:
+diff --git a/option/inbound.go b/option/inbound.go
+index 7bca5653..74291dac 100644
+--- a/option/inbound.go
++++ b/option/inbound.go
+@@ -47,12 +47,6 @@ func (h *Inbound) UnmarshalJSONContext(ctx context.Context, content []byte) erro
+ 	if err != nil {
+ 		return err
+ 	}
+-	if listenWrapper, isListen := options.(ListenOptionsWrapper); isListen {
+-		//nolint:staticcheck
+-		if listenWrapper.TakeListenOptions().InboundOptions != (InboundOptions{}) {
+-			return E.New("legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions")
+-		}
+-	}
+ 	h.Options = options
+ 	return nil
+ }
+diff --git a/option/inbound_legacy_test.go b/option/inbound_legacy_test.go
+new file mode 100644
+index 00000000..1529ad38
+--- /dev/null
++++ b/option/inbound_legacy_test.go
+@@ -0,0 +1,118 @@
++package option
++
++import (
++	"context"
++	"testing"
++
++	C "github.com/sagernet/sing-box/constant"
++	"github.com/sagernet/sing/common/json"
++	"github.com/sagernet/sing/service"
++
++	"github.com/stretchr/testify/require"
++)
++
++type stubInboundOptionsRegistry struct{}
++
++func (stubInboundOptionsRegistry) OptionTypes() []string {
++	return []string{C.TypeMixed, C.TypeTun}
++}
++
++func (stubInboundOptionsRegistry) CreateOptions(inboundType string) (any, bool) {
++	switch inboundType {
++	case C.TypeMixed:
++		return new(HTTPMixedInboundOptions), true
++	case C.TypeTun:
++		return new(TunInboundOptions), true
++	default:
++		return nil, false
++	}
++}
++
++func TestLegacyInboundUpgradeMixedAndTun(t *testing.T) {
++	t.Parallel()
++
++	ctx := service.ContextWith[InboundOptionsRegistry](context.Background(), stubInboundOptionsRegistry{})
++	rawConfig := []byte(`{
++		"inbounds": [
++			{
++				"tag": "mixed-in",
++				"type": "mixed",
++				"listen": "127.0.0.1",
++				"listen_port": 2080,
++				"sniff": true,
++				"sniff_override_destination": true,
++				"domain_strategy": "prefer_ipv4"
++			},
++			{
++				"tag": "tun-in",
++				"type": "tun",
++				"interface_name": "neko-tun",
++				"sniff": true,
++				"domain_strategy": "prefer_ipv6"
++			}
++		],
++		"route": {
++			"rules": [
++				{
++					"protocol": "dns",
++					"action": "hijack-dns"
++				}
++			]
++		}
++	}`)
++
++	options, err := json.UnmarshalExtendedContext[Options](ctx, rawConfig)
++	require.NoError(t, err)
++
++	require.Len(t, options.Inbounds, 2)
++
++	// Verify route rules:
++	// Should have:
++	// 0: sniff mixed-in (override_destination: true)
++	// 1: resolve mixed-in (strategy: prefer_ipv4)
++	// 2: sniff tun-in
++	// 3: resolve tun-in (strategy: prefer_ipv6)
++	// 4: hijack-dns
++	require.Len(t, options.Route.Rules, 5)
++
++	rule0 := options.Route.Rules[0]
++	require.Equal(t, C.RuleTypeDefault, rule0.Type)
++	require.Equal(t, C.RuleActionTypeSniff, rule0.DefaultOptions.Action)
++	require.Equal(t, []string{"mixed-in"}, []string(rule0.DefaultOptions.Inbound))
++	require.True(t, rule0.DefaultOptions.SniffOptions.OverrideDestination)
++
++	rule1 := options.Route.Rules[1]
++	require.Equal(t, C.RuleTypeDefault, rule1.Type)
++	require.Equal(t, C.RuleActionTypeResolve, rule1.DefaultOptions.Action)
++	require.Equal(t, []string{"mixed-in"}, []string(rule1.DefaultOptions.Inbound))
++	require.Equal(t, DomainStrategy(C.DomainStrategyPreferIPv4), rule1.DefaultOptions.ResolveOptions.Strategy)
++
++	rule2 := options.Route.Rules[2]
++	require.Equal(t, C.RuleTypeDefault, rule2.Type)
++	require.Equal(t, C.RuleActionTypeSniff, rule2.DefaultOptions.Action)
++	require.Equal(t, []string{"tun-in"}, []string(rule2.DefaultOptions.Inbound))
++	require.False(t, rule2.DefaultOptions.SniffOptions.OverrideDestination)
++
++	rule3 := options.Route.Rules[3]
++	require.Equal(t, C.RuleTypeDefault, rule3.Type)
++	require.Equal(t, C.RuleActionTypeResolve, rule3.DefaultOptions.Action)
++	require.Equal(t, []string{"tun-in"}, []string(rule3.DefaultOptions.Inbound))
++	require.Equal(t, DomainStrategy(C.DomainStrategyPreferIPv6), rule3.DefaultOptions.ResolveOptions.Strategy)
++
++	rule4 := options.Route.Rules[4]
++	require.Equal(t, C.RuleActionTypeHijackDNS, rule4.DefaultOptions.Action)
++}
++
++func TestHysteria2GeckoPasswordPrefix(t *testing.T) {
++	t.Parallel()
++
++	raw := []byte(`{"type": "salamander", "password": "gecko:mysecret:1200:1400"}`)
++	var obfs Hysteria2Obfs
++	err := json.Unmarshal(raw, &obfs)
++	require.NoError(t, err)
++
++	require.Equal(t, C.Hysteria2ObfsTypeGecko, obfs.Type)
++	require.Equal(t, "mysecret", obfs.Password)
++	require.Equal(t, 1200, obfs.GeckoOptions.MinPacketSize)
++	require.Equal(t, 1400, obfs.GeckoOptions.MaxPacketSize)
++}
+diff --git a/option/options.go b/option/options.go
+index b2116d34..d07c461d 100644
+--- a/option/options.go
++++ b/option/options.go
+@@ -4,11 +4,14 @@ import (
+ 	"bytes"
+ 	"context"
+ 	"reflect"
++	"slices"
+ 
++	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/schema"
+ 	E "github.com/sagernet/sing/common/exceptions"
+ 	F "github.com/sagernet/sing/common/format"
+ 	"github.com/sagernet/sing/common/json"
++	"github.com/sagernet/sing/common/json/badoption"
+ )
+ 
+ type _Options struct {
+@@ -44,6 +47,7 @@ func (o *Options) UnmarshalJSONContext(ctx context.Context, content []byte) erro
+ 		return err
+ 	}
+ 	o.RawMessage = content
++	upgradeLegacyInbounds(o)
+ 	return checkOptions(o)
+ }
+ 
+@@ -164,3 +168,93 @@ func checkOutbounds(outbounds []Outbound, endpoints []Endpoint) error {
+ 	}
+ 	return nil
+ }
++
++func upgradeLegacyInbounds(o *Options) {
++	if o == nil || len(o.Inbounds) == 0 {
++		return
++	}
++	var newRules []Rule
++	for i := range o.Inbounds {
++		inbound := &o.Inbounds[i]
++		var inboundOptions InboundOptions
++		if listenWrapper, isListen := inbound.Options.(ListenOptionsWrapper); isListen {
++			listenOpts := listenWrapper.TakeListenOptions()
++			inboundOptions = listenOpts.InboundOptions
++			listenOpts.InboundOptions = InboundOptions{}
++			listenWrapper.ReplaceListenOptions(listenOpts)
++		} else if tunOpts, isTun := inbound.Options.(*TunInboundOptions); isTun {
++			inboundOptions = tunOpts.InboundOptions
++			tunOpts.InboundOptions = InboundOptions{}
++		}
++
++		if inboundOptions.SniffEnabled {
++			hasSniff := false
++			if o.Route != nil {
++				for _, rule := range o.Route.Rules {
++					if rule.Type == C.RuleTypeDefault && rule.DefaultOptions.Action == C.RuleActionTypeSniff {
++						if inbound.Tag == "" || len(rule.DefaultOptions.Inbound) == 0 || slices.Contains(rule.DefaultOptions.Inbound, inbound.Tag) {
++							hasSniff = true
++							break
++						}
++					}
++				}
++			}
++			if !hasSniff {
++				sniffRule := Rule{
++					Type: C.RuleTypeDefault,
++					DefaultOptions: DefaultRule{
++						RuleAction: RuleAction{
++							Action: C.RuleActionTypeSniff,
++							SniffOptions: RouteActionSniff{
++								Timeout:             inboundOptions.SniffTimeout,
++								OverrideDestination: inboundOptions.SniffOverrideDestination,
++							},
++						},
++					},
++				}
++				if inbound.Tag != "" {
++					sniffRule.DefaultOptions.Inbound = badoption.Listable[string]{inbound.Tag}
++				}
++				newRules = append(newRules, sniffRule)
++			}
++		}
++
++		if C.DomainStrategy(inboundOptions.DomainStrategy) != C.DomainStrategyAsIS {
++			hasResolve := false
++			if o.Route != nil {
++				for _, rule := range o.Route.Rules {
++					if rule.Type == C.RuleTypeDefault && rule.DefaultOptions.Action == C.RuleActionTypeResolve {
++						if inbound.Tag == "" || len(rule.DefaultOptions.Inbound) == 0 || slices.Contains(rule.DefaultOptions.Inbound, inbound.Tag) {
++							hasResolve = true
++							break
++						}
++					}
++				}
++			}
++			if !hasResolve {
++				resolveRule := Rule{
++					Type: C.RuleTypeDefault,
++					DefaultOptions: DefaultRule{
++						RuleAction: RuleAction{
++							Action: C.RuleActionTypeResolve,
++							ResolveOptions: RouteActionResolve{
++								Strategy: inboundOptions.DomainStrategy,
++							},
++						},
++					},
++				}
++				if inbound.Tag != "" {
++					resolveRule.DefaultOptions.Inbound = badoption.Listable[string]{inbound.Tag}
++				}
++				newRules = append(newRules, resolveRule)
++			}
++		}
++	}
++
++	if len(newRules) > 0 {
++		if o.Route == nil {
++			o.Route = &RouteOptions{}
++		}
++		o.Route.Rules = append(newRules, o.Route.Rules...)
++	}
++}
+diff --git a/option/outbound.go b/option/outbound.go
+index 4590b48d..e6fac632 100644
+--- a/option/outbound.go
++++ b/option/outbound.go
+@@ -52,12 +52,6 @@ func (h *Outbound) UnmarshalJSONContext(ctx context.Context, content []byte) err
+ 	if err != nil {
+ 		return err
+ 	}
+-	if listenWrapper, isListen := options.(ListenOptionsWrapper); isListen {
+-		//nolint:staticcheck
+-		if listenWrapper.TakeListenOptions().InboundOptions != (InboundOptions{}) {
+-			return E.New("legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, use rule actions instead")
+-		}
+-	}
+ 	h.Options = options
+ 	return nil
+ }
+diff --git a/option/rule_action.go b/option/rule_action.go
+index ae052004..0f0f8b75 100644
+--- a/option/rule_action.go
++++ b/option/rule_action.go
+@@ -323,8 +323,9 @@ func (r *RejectActionOptions) UnmarshalJSON(bytes []byte) error {
+ }
+ 
+ type RouteActionSniff struct {
+-	Sniffer badoption.Listable[string] `json:"sniffer,omitempty" enum:"tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp"`
+-	Timeout badoption.Duration         `json:"timeout,omitempty"`
++	Sniffer             badoption.Listable[string] `json:"sniffer,omitempty" enum:"tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp"`
++	Timeout             badoption.Duration         `json:"timeout,omitempty"`
++	OverrideDestination bool                       `json:"override_destination,omitempty"`
+ }
+ 
+ type RouteActionResolve struct {
+diff --git a/protocol/tun/inbound.go b/protocol/tun/inbound.go
+index 22172e50..756a0297 100644
+--- a/protocol/tun/inbound.go
++++ b/protocol/tun/inbound.go
+@@ -72,10 +72,6 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
+ 	if options.GSO {
+ 		return nil, E.New("GSO option in tun is deprecated in sing-box 1.11.0 and removed in sing-box 1.12.0")
+ 	}
+-	//nolint:staticcheck
+-	if options.InboundOptions != (option.InboundOptions{}) {
+-		return nil, E.New("legacy inbound fields are deprecated in sing-box 1.11.0 and removed in sing-box 1.13.0, checkout migration: https://sing-box.sagernet.org/migration/#migrate-legacy-inbound-fields-to-rule-actions")
+-	}
+ 
+ 	address := options.Address
+ 	inet4Address := common.Filter(address, func(it netip.Prefix) bool {
+diff --git a/route/network.go b/route/network.go
+index 07de8145..ac9151d0 100644
+--- a/route/network.go
++++ b/route/network.go
+@@ -64,6 +64,9 @@ type NetworkManager struct {
+ 	interfaceUpdateRunAccess sync.Mutex
+ 	powerUpdateAccess        sync.Mutex
+ 	powerUpdateCancel        context.CancelFunc
++	currentInterfaceIndex    int
++	currentInterfaceName     string
++	interfaceInitialized     bool
+ 	started                  bool
+ }
+ 
+@@ -536,6 +539,19 @@ func (r *NetworkManager) updateInterface(ctx context.Context, defaultInterface *
+ 	if ctx.Err() != nil {
+ 		return
+ 	}
++
++	r.stateAccess.Lock()
++	isInitial := !r.interfaceInitialized
++	interfaceChanged := !r.interfaceInitialized || r.currentInterfaceIndex != defaultInterface.Index || r.currentInterfaceName != defaultInterface.Name
++	r.currentInterfaceIndex = defaultInterface.Index
++	r.currentInterfaceName = defaultInterface.Name
++	r.interfaceInitialized = true
++	r.stateAccess.Unlock()
++
++	if !interfaceChanged {
++		return
++	}
++
+ 	var options []string
+ 	options = append(options, F.ToString("index ", defaultInterface.Index))
+ 	if C.IsAndroid && r.platformInterface == nil {
+@@ -571,7 +587,7 @@ func (r *NetworkManager) updateInterface(ctx context.Context, defaultInterface *
+ 	if ctx.Err() != nil {
+ 		return
+ 	}
+-	if !r.started {
++	if isInitial || !r.started {
+ 		return
+ 	}
+ 	r.ResetNetwork(ctx)
+diff --git a/route/rule/rule_action.go b/route/rule/rule_action.go
+index cb656118..b5d6638b 100644
+--- a/route/rule/rule_action.go
++++ b/route/rule/rule_action.go
+@@ -105,8 +105,9 @@ func NewRuleAction(ctx context.Context, logger logger.ContextLogger, action opti
+ 		return &RuleActionHijackDNS{}, nil
+ 	case C.RuleActionTypeSniff:
+ 		sniffAction := &RuleActionSniff{
+-			SnifferNames: action.SniffOptions.Sniffer,
+-			Timeout:      time.Duration(action.SniffOptions.Timeout),
++			SnifferNames:        action.SniffOptions.Sniffer,
++			Timeout:             time.Duration(action.SniffOptions.Timeout),
++			OverrideDestination: action.SniffOptions.OverrideDestination,
+ 		}
+ 		return sniffAction, sniffAction.build()
+ 	case C.RuleActionTypeResolve:

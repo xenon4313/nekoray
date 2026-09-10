@@ -134,7 +134,8 @@ namespace NekoGui {
 
         // UI mode: false = Advanced, true = Simple
         bool ui_simple_mode = true;
-        int ui_simple_bg = 1; // 1=anime ver1, 2=casual ver2
+        int ui_simple_bg = 1; // 0=custom, 1=ver1 (Taiga), 2=ver2 (City), 3=ver3 (Kana), 4=ver4 (Yuu)
+        QString ui_simple_bg_custom = "";
         int simple_last_profile_id = -1;
 
         // Socks & HTTP Inbound
