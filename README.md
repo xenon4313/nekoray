@@ -1,4 +1,4 @@
-# NekoBox (sing-box 1.14 Fork)
+# NekoBox (sing-box 1.14)
 
 <img src="https://raw.githubusercontent.com/r3t4rd/nekoray/refs/heads/main/ahertaw34a3.jpg" width="1234" alt="NekoBox screenshot"/>
 
