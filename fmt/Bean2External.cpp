@@ -188,10 +188,19 @@ namespace NekoGui_fmt {
 
             if (!obfsPassword.isEmpty()) {
                 QJsonObject obfs;
-                obfs["type"] = "salamander";
-                obfs["salamander"] = QJsonObject{
-                    {"password", obfsPassword},
-                };
+                if (obfsPassword.startsWith("gecko:")) {
+                    obfs["type"] = "gecko";
+                    auto parts = obfsPassword.mid(6).split(":");
+                    QJsonObject geckoObj{{"password", parts[0]}};
+                    if (parts.size() > 1 && !parts[1].isEmpty()) geckoObj["min_packet_size"] = parts[1].toInt();
+                    if (parts.size() > 2 && !parts[2].isEmpty()) geckoObj["max_packet_size"] = parts[2].toInt();
+                    obfs["gecko"] = geckoObj;
+                } else {
+                    obfs["type"] = "salamander";
+                    obfs["salamander"] = QJsonObject{
+                        {"password", obfsPassword},
+                    };
+                }
 
                 config["obfs"] = obfs;
             }

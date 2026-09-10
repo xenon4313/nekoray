@@ -415,6 +415,24 @@ namespace NekoGui_sub {
                     bean->sni = Node2QString(proxy["sni"]);
 
                     bean->obfsPassword = Node2QString(proxy["obfs-password"]);
+                    QString obfsType = Node2QString(proxy["obfs"]);
+                    if (obfsType.isEmpty()) obfsType = Node2QString(proxy["obfs-type"]);
+                    if (obfsType.compare("gecko", Qt::CaseInsensitive) == 0 && !bean->obfsPassword.startsWith("gecko:")) {
+                        QString minSize = Node2QString(proxy["obfs-min-size"]);
+                        QString maxSize = Node2QString(proxy["obfs-max-size"]);
+                        if (minSize.isEmpty() && maxSize.isEmpty() && proxy["obfs-params"]) {
+                            auto params = Node2QString(proxy["obfs-params"]).split(":");
+                            if (!params.isEmpty()) minSize = params[0];
+                            if (params.size() > 1) maxSize = params[1];
+                        }
+                        bean->obfsPassword = "gecko:" + bean->obfsPassword;
+                        if (!minSize.isEmpty() || !maxSize.isEmpty()) {
+                            bean->obfsPassword += ":" + minSize;
+                            if (!maxSize.isEmpty()) {
+                                bean->obfsPassword += ":" + maxSize;
+                            }
+                        }
+                    }
                     bean->password = Node2QString(proxy["password"]);
 
                     bean->uploadMbps = Node2QString(proxy["up"]).split(" ")[0].toInt();

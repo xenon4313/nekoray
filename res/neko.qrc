@@ -18,6 +18,8 @@
         <file alias="nekobox.png">public/nekobox.png</file>
         <file alias="ver1.jpg">public/ver1.jpg</file>
         <file alias="ver2.jpg">public/ver2.jpg</file>
+        <file alias="ver3.jpg">public/ver3.jpg</file>
+        <file alias="ver4.jpg">public/ver4.jpg</file>
         <file>neko.css</file>
         <file>vpn/vpn-run-root.sh</file>
         <file>vpn/sing-box-vpn.json</file>

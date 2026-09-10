@@ -223,6 +223,9 @@ set(PROJECT_SOURCES
         ui/dialog_hotkey.h
         ui/dialog_hotkey.ui
 
+        ui/dialog_theme_select.cpp
+        ui/dialog_theme_select.h
+
         ui/widget/ProxyItem.cpp
         ui/widget/ProxyItem.h
         ui/widget/ProxyItem.ui
@@ -237,6 +240,8 @@ set(PROJECT_SOURCES
         ui/widget/SimpleModeWidget.h
         ui/widget/SimpleRouteEditor.cpp
         ui/widget/SimpleRouteEditor.h
+        ui/widget/ProcessSelectDialog.cpp
+        ui/widget/ProcessSelectDialog.h
 
         res/neko.qrc
         res/theme/feiyangqingyun/qss.qrc

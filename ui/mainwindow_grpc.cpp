@@ -62,7 +62,7 @@ void MainWindow::setup_grpc() {
         auto *mw = GetMainWindow();
         if (!mw) return;
         QTimer::singleShot(1500, mw, [mw] {
-            runOnNewThread([mw] { mw->CheckUpdate(true); });
+            // runOnNewThread([mw] { mw->CheckUpdate(true); });
             mw->speedtest_current_group(1, true);
         });
     });
@@ -595,7 +595,7 @@ void MainWindow::cancelLastAction() {
 }
 
 void MainWindow::CheckUpdate(bool silentIfNoUpdate) {
-    // on new thread...
+    return;
 #ifndef NKR_NO_GRPC
     bool ok;
     libcore::UpdateReq request;

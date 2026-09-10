@@ -18,6 +18,8 @@ public:
 
 private slots:
     void rebuildTree();
+    void onContextMenu(const QPoint &pos);
+    void addRuleAndPrompt(const QString &matcher, bool isApp, bool isProxy);
 
 private:
     enum GroupMode {

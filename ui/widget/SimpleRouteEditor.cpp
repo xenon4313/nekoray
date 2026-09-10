@@ -1,8 +1,10 @@
 #include "SimpleRouteEditor.h"
+#include "ProcessSelectDialog.h"
 
 #include "db/Database.hpp"
 #include "db/ConfigBuilder.hpp"
 #include "main/NekoGui.hpp"
+#include "main/NekoGui_Utils.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -144,10 +146,12 @@ SimpleRouteEditor::ListPage SimpleRouteEditor::makeAppPage(QWidget *parent, cons
     page.edit->setPlaceholderText(placeholder);
     auto *addBtn = new QPushButton(tr("Add"), parent);
     auto *browseBtn = new QPushButton(tr("Browse…"), parent);
+    auto *runningBtn = new QPushButton(tr("Running…"), parent);
     auto *delBtn = new QPushButton(tr("Remove"), parent);
     row->addWidget(page.edit, 1);
     row->addWidget(addBtn);
     row->addWidget(browseBtn);
+    row->addWidget(runningBtn);
     row->addWidget(delBtn);
     lay->addLayout(row);
     connect(addBtn, &QPushButton::clicked, this, [=] {
@@ -169,6 +173,14 @@ SimpleRouteEditor::ListPage SimpleRouteEditor::makeAppPage(QWidget *parent, cons
         );
         if (path.isEmpty()) return;
         addListRow(page.list, QFileInfo(path).fileName());
+    });
+    connect(runningBtn, &QPushButton::clicked, this, [=] {
+        ProcessSelectDialog dlg(this);
+        if (dlg.exec() == QDialog::Accepted) {
+            for (const auto &proc : dlg.selectedProcessNames()) {
+                addListRow(page.list, proc);
+            }
+        }
     });
     return page;
 }
@@ -240,11 +252,13 @@ SimpleRouteEditor::ServerMapPage SimpleRouteEditor::makeServerAppPage(QWidget *p
     page.edit->setPlaceholderText(tr("opera.exe"));
     auto *addBtn = new QPushButton(tr("Add"), parent);
     auto *browseBtn = new QPushButton(tr("Browse…"), parent);
+    auto *runningBtn = new QPushButton(tr("Running…"), parent);
     auto *delBtn = new QPushButton(tr("Remove"), parent);
     row->addWidget(page.server);
     row->addWidget(page.edit, 1);
     row->addWidget(addBtn);
     row->addWidget(browseBtn);
+    row->addWidget(runningBtn);
     row->addWidget(delBtn);
     lay->addLayout(row);
 
@@ -270,6 +284,19 @@ SimpleRouteEditor::ServerMapPage SimpleRouteEditor::makeServerAppPage(QWidget *p
         if (path.isEmpty()) return;
         page.edit->setText(QFileInfo(path).fileName());
         addCurrent();
+    });
+    connect(runningBtn, &QPushButton::clicked, this, [=] {
+        if (page.server->currentIndex() < 0) {
+            QMessageBox::warning(this, tr("Apps by server"), tr("Select a server first."));
+            return;
+        }
+        ProcessSelectDialog dlg(this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const int profileId = page.server->currentData().toInt();
+            for (const auto &proc : dlg.selectedProcessNames()) {
+                addServerMapRow(page.list, proc, profileId);
+            }
+        }
     });
     return page;
 }
@@ -532,3 +559,67 @@ QString SimpleRouteEditor::toJson() const {
     }
     return QString::fromUtf8(QJsonDocument(QJsonObject{{"rules", rules}}).toJson(QJsonDocument::Indented));
 }
+
+bool SimpleRouteEditor::addRuleToCustomRoute(const QString &matcher, bool isApp, bool isProxy) {
+    QString target = matcher.trimmed();
+    if (target.isEmpty()) return false;
+    if (!isApp && target.contains(':')) {
+        target = target.section(':', 0, 0).trimmed();
+    }
+    if (target.isEmpty()) return false;
+
+    auto mergeRouteJson = [](const QString &a, const QString &b) {
+        QJsonArray rules;
+        auto take = [&](const QString &raw) {
+            auto obj = QString2QJsonObject(raw.trimmed().isEmpty() ? QStringLiteral("{\"rules\":[]}") : raw);
+            for (const auto &v: obj.value("rules").toArray()) rules += v;
+        };
+        take(a);
+        take(b);
+        return QJsonObject2QString(QJsonObject{{"rules", rules}}, false);
+    };
+
+    SimpleRouteEditor editor;
+    editor.loadFromJson(mergeRouteJson(NekoGui::dataStore->routing->custom,
+                                       NekoGui::dataStore->custom_route_global));
+
+    QListWidget *targetList = nullptr;
+    QListWidget *opposingList = nullptr;
+
+    if (isApp) {
+        targetList = isProxy ? editor.proxyApps.list : editor.directApps.list;
+        opposingList = isProxy ? editor.directApps.list : editor.proxyApps.list;
+    } else {
+        targetList = isProxy ? editor.proxySites.list : editor.directSites.list;
+        opposingList = isProxy ? editor.directSites.list : editor.proxySites.list;
+    }
+
+    if (!targetList) return false;
+
+    // Check if already present in targetList
+    for (int i = 0; i < targetList->count(); ++i) {
+        if (targetList->item(i)->text().compare(target, Qt::CaseInsensitive) == 0) {
+            return false;
+        }
+    }
+
+    // Remove from opposing list if it was there
+    if (opposingList) {
+        for (int i = 0; i < opposingList->count(); ++i) {
+            if (opposingList->item(i)->text().compare(target, Qt::CaseInsensitive) == 0) {
+                delete opposingList->takeItem(i);
+                break;
+            }
+        }
+    }
+
+    addListRow(targetList, target);
+
+    const QString out = editor.toJson();
+    NekoGui::dataStore->routing->custom = out;
+    NekoGui::dataStore->custom_route_global = QStringLiteral("{\"rules\": []}");
+    NekoGui::dataStore->routing->Save();
+    NekoGui::dataStore->Save();
+    return true;
+}
+
