@@ -1,3 +1,5 @@
+# English | [#Русский](https://github.com/xenon4313/nekoray/blob/main/README_RU.md) 
+
 # NekoBox (sing-box 1.14 Fork)
 
 <img src="https://pu.yufu.su/2yYFkWZi.png" width="1234" alt="NekoBox screenshot"/>
