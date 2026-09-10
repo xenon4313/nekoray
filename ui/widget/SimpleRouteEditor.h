@@ -21,6 +21,8 @@ public:
     void loadFromJson(const QString &json);
     [[nodiscard]] QString toJson() const;
 
+    static bool addRuleToCustomRoute(const QString &matcher, bool isApp, bool isProxy);
+
 private:
     struct ListPage {
         QListWidget *list = nullptr;

@@ -1,5 +1,7 @@
 #include "DetailsPanel.h"
-
+#include "SimpleRouteEditor.h"
+#include "ui/mainwindow.h"
+#include "main/NekoGui.hpp"
 #include "main/NekoGui_Utils.hpp"
 
 #include <QHBoxLayout>
@@ -11,6 +13,10 @@
 #include <QSet>
 #include <QScrollBar>
 #include <QJsonObject>
+#include <QMenu>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QAbstractButton>
 #include <algorithm>
 #include <functional>
 
@@ -92,14 +98,23 @@ QList<AggNode *> sortedChildren(AggNode &node, int sortMode) {
 }
 
 void fillTree(QTreeWidget *tree, QTreeWidgetItem *parent, AggNode &node, int sortMode, int depth,
-              const QString &parentPath, const QSet<QString> &expandedKeys, bool hadSavedState) {
+              const QString &parentPath, const QSet<QString> &expandedKeys, bool hadSavedState, int mode) {
     auto kids = sortedChildren(node, sortMode);
     for (AggNode *c: kids) {
         auto *item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(tree);
         QString prefix;
-        if (depth == 0) prefix = "";
-        else if (depth == 1) prefix = QObject::tr("FQDN: ");
-        else prefix = QObject::tr("IP: ");
+        int kind = 0; // 1: Process, 2: Host, 3: IP
+        if (mode == 1) { // ByHostIp: 0 = Host, 1 = IP
+            kind = (depth == 0) ? 2 : 3;
+            prefix = (depth == 0) ? "" : QObject::tr("IP: ");
+        } else if (mode == 2) { // ByProcessIp: 0 = Process, 1 = IP
+            kind = (depth == 0) ? 1 : 3;
+            prefix = (depth == 0) ? "" : QObject::tr("IP: ");
+        } else { // ByProcessHostIp: 0 = Process, 1 = Host, 2 = IP
+            if (depth == 0) { kind = 1; prefix = ""; }
+            else if (depth == 1) { kind = 2; prefix = QObject::tr("FQDN: "); }
+            else { kind = 3; prefix = QObject::tr("IP: "); }
+        }
 
         QString status;
         if (c->active > 0) status = QObject::tr("%1 active").arg(c->active);
@@ -107,6 +122,8 @@ void fillTree(QTreeWidget *tree, QTreeWidgetItem *parent, AggNode &node, int sor
 
         const QString pathKey = parentPath.isEmpty() ? c->key : (parentPath + QChar(1) + c->key);
         item->setData(0, Qt::UserRole, pathKey);
+        item->setData(0, Qt::UserRole + 1, c->title);
+        item->setData(0, Qt::UserRole + 2, kind);
         item->setText(0, prefix + c->title);
         item->setText(1, c->tag);
         item->setText(2, status);
@@ -122,7 +139,7 @@ void fillTree(QTreeWidget *tree, QTreeWidgetItem *parent, AggNode &node, int sor
             item->setExpanded(false);
         }
 
-        fillTree(tree, item, *c, sortMode, depth + 1, pathKey, expandedKeys, hadSavedState);
+        fillTree(tree, item, *c, sortMode, depth + 1, pathKey, expandedKeys, hadSavedState, mode);
     }
 }
 
@@ -201,6 +218,8 @@ DetailsPanel::DetailsPanel(QWidget *parent) : QWidget(parent) {
     tree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     tree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     tree->header()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    tree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(tree, &QTreeWidget::customContextMenuRequested, this, &DetailsPanel::onContextMenu);
     layout->addWidget(tree, 1);
 
     summary = new QLabel(this);
@@ -273,7 +292,7 @@ void DetailsPanel::rebuildTree() {
     }
 
     filterNode(root, query);
-    fillTree(tree, nullptr, root, sortMode, 0, {}, expandedKeys, hadSavedState);
+    fillTree(tree, nullptr, root, sortMode, 0, {}, expandedKeys, hadSavedState, static_cast<int>(mode));
 
     if (!selectedKey.isEmpty()) {
         std::function<QTreeWidgetItem *(QTreeWidgetItem *)> find = [&](QTreeWidgetItem *it) -> QTreeWidgetItem * {
@@ -295,3 +314,111 @@ void DetailsPanel::rebuildTree() {
                          .arg(activeCount)
                          .arg(fmtTraffic(totalUp, totalDown)));
 }
+
+void DetailsPanel::onContextMenu(const QPoint &pos) {
+    auto *item = tree->itemAt(pos);
+    if (!item) return;
+
+    QString rawName = item->data(0, Qt::UserRole + 1).toString().trimmed();
+    int kind = item->data(0, Qt::UserRole + 2).toInt();
+    if (rawName.isEmpty()) return;
+
+    QMenu menu(this);
+
+    QString parentProcess;
+    QString parentHost;
+    if (auto *p = item->parent()) {
+        int pKind = p->data(0, Qt::UserRole + 2).toInt();
+        if (pKind == 1) parentProcess = p->data(0, Qt::UserRole + 1).toString().trimmed();
+        else if (pKind == 2) parentHost = p->data(0, Qt::UserRole + 1).toString().trimmed();
+
+        if (auto *gp = p->parent()) {
+            int gpKind = gp->data(0, Qt::UserRole + 2).toInt();
+            if (gpKind == 1) parentProcess = gp->data(0, Qt::UserRole + 1).toString().trimmed();
+        }
+    }
+
+    if (kind == 1) { // Process
+        if (rawName != "(unknown)") {
+            menu.addAction(tr("Add \"%1\" to Direct Apps").arg(rawName), this, [=] {
+                addRuleAndPrompt(rawName, true, false);
+            });
+            menu.addAction(tr("Add \"%1\" to Proxy Apps").arg(rawName), this, [=] {
+                addRuleAndPrompt(rawName, true, true);
+            });
+        }
+    } else if (kind == 2) { // Host / FQDN
+        menu.addAction(tr("Add \"%1\" to Direct Sites").arg(rawName), this, [=] {
+            addRuleAndPrompt(rawName, false, false);
+        });
+        menu.addAction(tr("Add \"%1\" to Proxy Sites").arg(rawName), this, [=] {
+            addRuleAndPrompt(rawName, false, true);
+        });
+        if (!parentProcess.isEmpty() && parentProcess != "(unknown)") {
+            menu.addSeparator();
+            menu.addAction(tr("Add process \"%1\" to Direct Apps").arg(parentProcess), this, [=] {
+                addRuleAndPrompt(parentProcess, true, false);
+            });
+            menu.addAction(tr("Add process \"%1\" to Proxy Apps").arg(parentProcess), this, [=] {
+                addRuleAndPrompt(parentProcess, true, true);
+            });
+        }
+    } else if (kind == 3) { // IP
+        if (!parentHost.isEmpty()) {
+            menu.addAction(tr("Add \"%1\" to Direct Sites").arg(parentHost), this, [=] {
+                addRuleAndPrompt(parentHost, false, false);
+            });
+            menu.addAction(tr("Add \"%1\" to Proxy Sites").arg(parentHost), this, [=] {
+                addRuleAndPrompt(parentHost, false, true);
+            });
+        }
+        if (!parentProcess.isEmpty() && parentProcess != "(unknown)") {
+            if (!parentHost.isEmpty()) menu.addSeparator();
+            menu.addAction(tr("Add process \"%1\" to Direct Apps").arg(parentProcess), this, [=] {
+                addRuleAndPrompt(parentProcess, true, false);
+            });
+            menu.addAction(tr("Add process \"%1\" to Proxy Apps").arg(parentProcess), this, [=] {
+                addRuleAndPrompt(parentProcess, true, true);
+            });
+        }
+    }
+
+    if (!menu.isEmpty()) {
+        menu.exec(tree->viewport()->mapToGlobal(pos));
+    }
+}
+
+void DetailsPanel::addRuleAndPrompt(const QString &matcher, bool isApp, bool isProxy) {
+    if (matcher.isEmpty()) return;
+
+    QString ruleType = isApp ? (isProxy ? tr("Proxy apps") : tr("Direct apps"))
+                             : (isProxy ? tr("Proxy sites") : tr("Direct sites"));
+
+    bool added = SimpleRouteEditor::addRuleToCustomRoute(matcher, isApp, isProxy);
+    if (!added) {
+        QMessageBox::information(this, tr("Connection Rules"),
+                                 tr("\"%1\" is already in %2.").arg(matcher, ruleType));
+        return;
+    }
+
+    QMessageBox box(this);
+    box.setWindowTitle(tr("Connection Rules"));
+    box.setIcon(QMessageBox::Information);
+    box.setText(tr("Added \"%1\" to %2.\n\nRestart the tunnel to apply changes.")
+                    .arg(matcher, ruleType));
+
+    auto *restartBtn = box.addButton(tr("Restart Tunnel"), QMessageBox::AcceptRole);
+    auto *laterBtn = box.addButton(tr("Later"), QMessageBox::RejectRole);
+    box.setDefaultButton(restartBtn);
+    box.exec();
+
+    if (box.clickedButton() == restartBtn) {
+        if (NekoGui::dataStore->started_id >= 0 && GetMainWindow()) {
+            GetMainWindow()->neko_start(NekoGui::dataStore->started_id);
+        }
+        MW_dialog_message("", "UpdateDataStore");
+    } else {
+        MW_dialog_message("", "UpdateDataStore");
+    }
+}
+

@@ -48,6 +48,7 @@ SimpleModeWidget::SimpleModeWidget(QWidget *parent) : QWidget(parent) {
 
     advancedBtn = new QPushButton(tr("Advanced"), this);
     updateBtn = new QPushButton(tr("Update"), this);
+    updateBtn->hide();
     bgBtn = new QPushButton(tr("Theme"), this);
     rulesBtn = new QPushButton(tr("Rules"), this);
     testBtn = new QPushButton(tr("Test"), this);
@@ -304,10 +305,21 @@ QRect SimpleModeWidget::mapDesignRect(int x, int y, int w, int h) const {
 
 void SimpleModeWidget::reloadBackground() {
     int ver = NekoGui::dataStore->ui_simple_bg;
-    if (ver != 2) ver = 1;
-    QString path = ver == 2 ? ":/neko/ver2.jpg" : ":/neko/ver1.jpg";
-    bg = QPixmap(path);
-    if (bg.isNull()) bg = QPixmap(ver == 2 ? "ver2.jpg" : "ver1.jpg");
+    bg = QPixmap();
+    if (ver == 0 && !NekoGui::dataStore->ui_simple_bg_custom.isEmpty()) {
+        bg = QPixmap(NekoGui::dataStore->ui_simple_bg_custom);
+    }
+    if (bg.isNull() && ver >= 1 && ver <= 4) {
+        QString rPath = QStringLiteral(":/neko/ver%1.jpg").arg(ver);
+        bg = QPixmap(rPath);
+        if (bg.isNull()) {
+            bg = QPixmap(QStringLiteral("ver%1.jpg").arg(ver));
+        }
+    }
+    if (bg.isNull()) {
+        bg = QPixmap(":/neko/ver1.jpg");
+        if (bg.isNull()) bg = QPixmap("ver1.jpg");
+    }
     update();
 }
 
@@ -634,7 +646,21 @@ void SimpleModeWidget::paintEvent(QPaintEvent *) {
         int w = (int) (kDesignW * scale);
         int h = (int) (kDesignH * scale);
         QRect dest((width() - w) / 2, (height() - h) / 2, w, h);
-        p.drawPixmap(dest, bg);
+
+        // Aspect-fill (cover) preserving source aspect ratio without stretching
+        double targetAspect = (double) w / (double) h;
+        double bgAspect = (double) bg.width() / (double) bg.height();
+        QRect src;
+        if (bgAspect > targetAspect) {
+            int srcW = qRound(bg.height() * targetAspect);
+            int srcX = (bg.width() - srcW) / 2;
+            src = QRect(srcX, 0, srcW, bg.height());
+        } else {
+            int srcH = qRound(bg.width() / targetAspect);
+            int srcY = (bg.height() - srcH) / 2;
+            src = QRect(0, srcY, bg.width(), srcH);
+        }
+        p.drawPixmap(dest, bg, src);
     } else {
         p.fillRect(rect(), QColor(28, 30, 38));
     }
@@ -687,11 +713,11 @@ void SimpleModeWidget::rebuildChromeLayout() {
 
 
     advancedBtn->move(m, m);
-    updateBtn->move(advancedBtn->x() + advancedBtn->width() + 8, m);
+    // updateBtn->move(advancedBtn->x() + advancedBtn->width() + 8, m);
     bgBtn->move(width() - m - bgBtn->width(), m);
     rulesBtn->move(bgBtn->x() - 8 - rulesBtn->width(), m);
     advancedBtn->raise();
-    updateBtn->raise();
+    // updateBtn->raise();
     rulesBtn->raise();
     bgBtn->raise();
 

@@ -280,6 +280,10 @@ namespace NekoGui_fmt {
             serverPort = url.port();
             hopPort = query.queryItemValue("mport");
             obfsPassword = query.queryItemValue("obfs-password");
+            const QString obfsType = query.hasQueryItem("obfs") ? query.queryItemValue("obfs") : query.queryItemValue("obfs-type");
+            if (obfsType.compare("gecko", Qt::CaseInsensitive) == 0 && !obfsPassword.startsWith("gecko:")) {
+                obfsPassword = "gecko:" + obfsPassword;
+            }
             allowInsecure = QStringList{"1", "true"}.contains(query.queryItemValue("insecure"));
 
             if (url.password().isEmpty()) {
