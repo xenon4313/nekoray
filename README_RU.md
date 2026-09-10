@@ -38,7 +38,7 @@
 
 Портативные сборки (установка не требуется). Распакуйте архив и запустите `nekobox.exe`.
 
-**Релизы:** https://github.com/r3t4rd/nekoray/releases
+**Релизы:** https://github.com/xenon4313/nekoray/releases
 
 Примеры наименования файлов для Windows:
 
