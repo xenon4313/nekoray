@@ -35,11 +35,48 @@ constexpr int kRoleOutbound = Qt::UserRole + 2;
 void SimpleRouteEditor::addListRow(QListWidget *list, const QString &text) {
     auto t = text.trimmed();
     if (t.isEmpty() || !list) return;
+
+    // Normalize URL/scheme/path/port:
+    if (t.contains("://")) {
+        t = t.section("://", 1);
+    }
+    if (t.contains('/')) {
+        t = t.section('/', 0, 0);
+    }
+    if (t.contains(':')) {
+        t = t.section(':', 0, 0);
+    }
+    while (t.startsWith("*.")) t = t.mid(2);
+    if (t.startsWith(".") && t.indexOf('.', 1) > 0) {
+        t = t.mid(1);
+    }
+    t = t.trimmed().toLower();
+    if (t.isEmpty()) return;
+
     for (int i = 0; i < list->count(); ++i) {
         if (list->item(i)->text().compare(t, Qt::CaseInsensitive) == 0) return;
     }
     list->addItem(t);
 }
+
+void SimpleRouteEditor::removeMatching(QListWidget *list, const QString &text) {
+    if (!list) return;
+    auto t = text.trimmed().toLower();
+    if (t.contains("://")) t = t.section("://", 1);
+    if (t.contains('/')) t = t.section('/', 0, 0);
+    if (t.contains(':')) t = t.section(':', 0, 0);
+    while (t.startsWith("*.")) t = t.mid(2);
+    if (t.startsWith(".") && t.indexOf('.', 1) > 0) t = t.mid(1);
+    t = t.trimmed().toLower();
+    if (t.isEmpty()) return;
+
+    for (int i = list->count() - 1; i >= 0; --i) {
+        if (list->item(i)->text().compare(t, Qt::CaseInsensitive) == 0) {
+            delete list->takeItem(i);
+        }
+    }
+}
+
 
 void SimpleRouteEditor::removeSelected(QListWidget *list) {
     if (!list) return;
@@ -108,7 +145,7 @@ void SimpleRouteEditor::addServerMapRow(QListWidget *list, const QString &matche
     list->addItem(item);
 }
 
-SimpleRouteEditor::ListPage SimpleRouteEditor::makeDomainPage(QWidget *parent, const QString &placeholder) {
+SimpleRouteEditor::ListPage SimpleRouteEditor::makeDomainPage(QWidget *parent, const QString &placeholder, ListPage *opposing) {
     ListPage page;
     auto *lay = new QVBoxLayout(parent);
     page.list = new QListWidget(parent);
@@ -123,19 +160,21 @@ SimpleRouteEditor::ListPage SimpleRouteEditor::makeDomainPage(QWidget *parent, c
     row->addWidget(addBtn);
     row->addWidget(delBtn);
     lay->addLayout(row);
-    connect(addBtn, &QPushButton::clicked, this, [=] {
-        addListRow(page.list, page.edit->text());
+    auto onAdd = [=] {
+        const auto text = page.edit->text();
+        addListRow(page.list, text);
+        if (opposing && opposing->list) {
+            removeMatching(opposing->list, text);
+        }
         page.edit->clear();
-    });
+    };
+    connect(addBtn, &QPushButton::clicked, this, onAdd);
     connect(delBtn, &QPushButton::clicked, this, [=] { removeSelected(page.list); });
-    connect(page.edit, &QLineEdit::returnPressed, this, [=] {
-        addListRow(page.list, page.edit->text());
-        page.edit->clear();
-    });
+    connect(page.edit, &QLineEdit::returnPressed, this, onAdd);
     return page;
 }
 
-SimpleRouteEditor::ListPage SimpleRouteEditor::makeAppPage(QWidget *parent, const QString &placeholder) {
+SimpleRouteEditor::ListPage SimpleRouteEditor::makeAppPage(QWidget *parent, const QString &placeholder, ListPage *opposing) {
     ListPage page;
     auto *lay = new QVBoxLayout(parent);
     page.list = new QListWidget(parent);
@@ -154,13 +193,19 @@ SimpleRouteEditor::ListPage SimpleRouteEditor::makeAppPage(QWidget *parent, cons
     row->addWidget(runningBtn);
     row->addWidget(delBtn);
     lay->addLayout(row);
+    auto addApp = [=](const QString &text) {
+        addListRow(page.list, text);
+        if (opposing && opposing->list) {
+            removeMatching(opposing->list, text);
+        }
+    };
     connect(addBtn, &QPushButton::clicked, this, [=] {
-        addListRow(page.list, page.edit->text());
+        addApp(page.edit->text());
         page.edit->clear();
     });
     connect(delBtn, &QPushButton::clicked, this, [=] { removeSelected(page.list); });
     connect(page.edit, &QLineEdit::returnPressed, this, [=] {
-        addListRow(page.list, page.edit->text());
+        addApp(page.edit->text());
         page.edit->clear();
     });
     connect(browseBtn, &QPushButton::clicked, this, [=] {
@@ -172,13 +217,13 @@ SimpleRouteEditor::ListPage SimpleRouteEditor::makeAppPage(QWidget *parent, cons
 #endif
         );
         if (path.isEmpty()) return;
-        addListRow(page.list, QFileInfo(path).fileName());
+        addApp(QFileInfo(path).fileName());
     });
     connect(runningBtn, &QPushButton::clicked, this, [=] {
         ProcessSelectDialog dlg(this);
         if (dlg.exec() == QDialog::Accepted) {
             for (const auto &proc : dlg.selectedProcessNames()) {
-                addListRow(page.list, proc);
+                addApp(proc);
             }
         }
     });
@@ -318,19 +363,19 @@ SimpleRouteEditor::SimpleRouteEditor(QWidget *parent) : QDialog(parent) {
     tabs = new QTabWidget(this);
 
     auto *ds = new QWidget;
-    directSites = makeDomainPage(ds, tr(".ru  or  example.com"));
+    directSites = makeDomainPage(ds, tr(".ru  or  example.com"), &proxySites);
     tabs->addTab(ds, tr("Direct sites"));
 
     auto *ps = new QWidget;
-    proxySites = makeDomainPage(ps, tr(".ru  or  example.com"));
+    proxySites = makeDomainPage(ps, tr(".ru  or  example.com"), &directSites);
     tabs->addTab(ps, tr("Proxy sites"));
 
     auto *da = new QWidget;
-    directApps = makeAppPage(da, tr("chrome.exe"));
+    directApps = makeAppPage(da, tr("chrome.exe"), &proxyApps);
     tabs->addTab(da, tr("Direct apps"));
 
     auto *pa = new QWidget;
-    proxyApps = makeAppPage(pa, tr("Discord.exe"));
+    proxyApps = makeAppPage(pa, tr("Discord.exe"), &directApps);
     tabs->addTab(pa, tr("Proxy apps"));
 
     auto *ss = new QWidget;

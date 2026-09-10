@@ -755,20 +755,35 @@ namespace NekoGui {
                         ip_cidr += item;
                     }
                 } else {
-                    // https://www.v2fly.org/config/dns.html#dnsobject
                     if (item.startsWith("geosite:")) {
                         auto code = item.mid(QStringLiteral("geosite:").size()).trimmed();
                         if (!code.isEmpty()) rule_set += ensureRuleSet("geosite", code);
                     } else if (item.startsWith("full:")) {
-                        domain_full += item.replace("full:", "").toLower();
+                        auto d = item.mid(5).trimmed().toLower();
+                        if (d.contains("://")) d = d.section("://", 1);
+                        if (d.contains('/')) d = d.section('/', 0, 0);
+                        if (d.contains(':')) d = d.section(':', 0, 0);
+                        if (!d.isEmpty()) domain_full += d;
                     } else if (item.startsWith("domain:")) {
-                        domain_subdomain += item.replace("domain:", "").toLower();
+                        auto d = item.mid(7).trimmed().toLower();
+                        if (d.contains("://")) d = d.section("://", 1);
+                        if (d.contains('/')) d = d.section('/', 0, 0);
+                        if (d.contains(':')) d = d.section(':', 0, 0);
+                        while (d.startsWith("*.")) d = d.mid(2);
+                        while (d.startsWith(".") && d.indexOf('.', 1) > 0) d = d.mid(1);
+                        if (!d.isEmpty()) domain_subdomain += d;
                     } else if (item.startsWith("regexp:")) {
-                        domain_regexp += item.replace("regexp:", "").toLower();
+                        domain_regexp += item.mid(7).trimmed().toLower();
                     } else if (item.startsWith("keyword:")) {
-                        domain_keyword += item.replace("keyword:", "").toLower();
+                        domain_keyword += item.mid(8).trimmed().toLower();
                     } else {
-                        domain_subdomain += item.toLower();
+                        auto d = item.trimmed().toLower();
+                        if (d.contains("://")) d = d.section("://", 1);
+                        if (d.contains('/')) d = d.section('/', 0, 0);
+                        if (d.contains(':')) d = d.section(':', 0, 0);
+                        while (d.startsWith("*.")) d = d.mid(2);
+                        while (d.startsWith(".") && d.indexOf('.', 1) > 0) d = d.mid(1);
+                        if (!d.isEmpty()) domain_subdomain += d;
                     }
                 }
             }
@@ -860,6 +875,57 @@ namespace NekoGui {
         add_rule_dns(status->domainListDNSRemote, "dns-remote");
         add_rule_dns(status->domainListDNSDirect, "dns-direct");
 
+        // Feed custom routing domains into DNS rules so direct domains resolve locally
+        // and register reverse IP mapping in sing-box
+        if (!status->forTest) {
+            QStringList customDirectDomains;
+            QStringList customRemoteDomains;
+            auto scanJsonDomains = [&](const QString &json) {
+                if (json.trimmed().isEmpty()) return;
+                auto root = QString2QJsonObject(json);
+                auto arr = root.value("rules").toArray();
+                for (const auto &rv : arr) {
+                    if (!rv.isObject()) continue;
+                    auto r = rv.toObject();
+                    auto out = r.value("outbound").toString();
+                    QStringList domains;
+                    for (const auto &d: r.value("domain_suffix").toArray()) {
+                        auto s = d.toString().trimmed().toLower();
+                        if (s.contains("://")) s = s.section("://", 1);
+                        if (s.contains('/')) s = s.section('/', 0, 0);
+                        if (s.contains(':')) s = s.section(':', 0, 0);
+                        while (s.startsWith("*.")) s = s.mid(2);
+                        while (s.startsWith(".") && s.indexOf('.', 1) > 0) s = s.mid(1);
+                        if (!s.isEmpty()) domains += s;
+                    }
+                    for (const auto &d: r.value("domain").toArray()) {
+                        auto s = d.toString().trimmed().toLower();
+                        if (s.contains("://")) s = s.section("://", 1);
+                        if (s.contains('/')) s = s.section('/', 0, 0);
+                        if (s.contains(':')) s = s.section(':', 0, 0);
+                        if (!s.isEmpty()) domains += "full:" + s;
+                    }
+                    for (const auto &d: r.value("domain_keyword").toArray()) {
+                        auto s = d.toString().trimmed().toLower();
+                        if (!s.isEmpty()) domains += "keyword:" + s;
+                    }
+                    if (out == "direct" || out == "bypass") {
+                        customDirectDomains += domains;
+                    } else if (out == "proxy" || out.startsWith("p-") || out == ProfileOutboundTag(status->ent->id)) {
+                        customRemoteDomains += domains;
+                    }
+                }
+            };
+            scanJsonDomains(dataStore->routing->custom);
+            scanJsonDomains(dataStore->custom_route_global);
+            customDirectDomains.removeDuplicates();
+            customRemoteDomains.removeDuplicates();
+
+            // Direct domains first so exceptions beat broad proxy rules
+            add_rule_dns(customDirectDomains, "dns-direct");
+            add_rule_dns(customRemoteDomains, "dns-remote");
+        }
+
         // built-in rules
         if (!status->forTest) {
             dnsRules += QJsonObject{
@@ -911,15 +977,20 @@ namespace NekoGui {
             status->routingRules += rule;
         };
 
-        // final add user rule
+        // final add user rule (direct before remote for exceptions)
         add_rule_route(status->domainListBlock, false, "block");
-        add_rule_route(status->domainListRemote, false, tagProxy);
         add_rule_route(status->domainListDirect, false, "bypass");
+        add_rule_route(status->domainListRemote, false, tagProxy);
         add_rule_route(status->ipListBlock, true, "block");
-        add_rule_route(status->ipListRemote, true, tagProxy);
         add_rule_route(status->ipListDirect, true, "bypass");
+        add_rule_route(status->ipListRemote, true, tagProxy);
 
         // built-in rules
+        status->routingRules += QJsonObject{
+            {"network", "udp"},
+            {"port", QJsonArray{443}},
+            {"action", "reject"},
+        };
         status->routingRules += QJsonObject{
             {"network", "udp"},
             {"port", QJsonArray{135, 137, 138, 139, 5353}},
@@ -988,22 +1059,26 @@ namespace NekoGui {
         const QString startedProfileTag = ProfileOutboundTag(status->ent->id);
 
         // Priority buckets (sing-box: first match wins):
-        // 0 Sites by server (domain → p-*)
-        // 1 Apps by server  (process → p-*)
+        // 0 System / Core rules (hijack-dns, core bypass, reject ports/QUIC)
+        // 1 Sites by server (domain → p-*)
         // 2 Direct/Proxy sites (domain → proxy/direct)
-        // 3 Direct/Proxy apps (process → proxy/direct) — lowest among friendly rules
-        // 4 everything else (custom / system)
-        QJsonArray bucketServerSites, bucketServerApps, bucketSites, bucketApps, bucketOther;
+        // 3 Apps by server  (process → p-*)
+        // 4 Direct/Proxy apps (process → proxy/direct)
+        // 5 everything else (custom / system)
+        QJsonArray bucketSystem, bucketServerSites, bucketSites, bucketServerApps, bucketApps, bucketOther;
 
         auto classifyAndPush = [&](QJsonObject rule) {
+            auto action = rule.value("action").toString();
             auto out = rule.value("outbound").toString();
             if (out == "block") {
                 rule.remove("outbound");
                 rule["action"] = "reject";
+                action = "reject";
                 out.clear();
-            } else if (out == "dns-out" || out == "dns") {
+            } else if (out == "dns-out" || out == "dns" || rule.value("protocol").toString() == "dns") {
                 rule.remove("outbound");
                 rule["action"] = "hijack-dns";
+                action = "hijack-dns";
                 out.clear();
             } else if (out == startedProfileTag) {
                 rule["outbound"] = "proxy";
@@ -1012,10 +1087,68 @@ namespace NekoGui {
                 return; // missing split outbound
             }
 
+            // System rules take absolute highest priority:
+            // 1. hijack-dns so DNS traffic from any app is handled by sing-box DNS router
+            // 2. nekobox_core bypass to prevent loops
+            // 3. system port/protocol rejects (QUIC reject, NetBIOS, multicast)
+            if (action == "hijack-dns") {
+                bucketSystem += rule;
+                return;
+            }
+            const auto procArray = rule.value("process_name").toArray();
+            if (procArray.contains("nekobox_core") || procArray.contains("nekobox") ||
+                procArray.contains("nekobox_core.exe") || procArray.contains("nekobox.exe")) {
+                bucketSystem += rule;
+                return;
+            }
+            if (action == "reject" && (rule.contains("port") || rule.contains("ip_cidr") || rule.contains("source_ip_cidr"))) {
+                bucketSystem += rule;
+                return;
+            }
+
             for (const auto &k: {QStringLiteral("geoip"), QStringLiteral("geosite"), QStringLiteral("source_geoip")}) {
                 rule.remove(k);
             }
             if (!ruleHasMatchersLeft(rule)) return;
+
+            if (rule.contains("domain_suffix")) {
+                QJsonArray cleanSuffix;
+                for (const auto &v: rule.value("domain_suffix").toArray()) {
+                    auto s = v.toString().trimmed().toLower();
+                    if (s.contains("://")) s = s.section("://", 1);
+                    if (s.contains('/')) s = s.section('/', 0, 0);
+                    if (s.contains(':')) s = s.section(':', 0, 0);
+                    while (s.startsWith("*.")) s = s.mid(2);
+                    while (s.startsWith(".") && s.indexOf('.', 1) > 0) s = s.mid(1);
+                    if (!s.isEmpty()) cleanSuffix += s;
+                }
+                rule["domain_suffix"] = cleanSuffix;
+            }
+            if (rule.contains("domain")) {
+                QJsonArray cleanDomain;
+                for (const auto &v: rule.value("domain").toArray()) {
+                    auto s = v.toString().trimmed().toLower();
+                    if (s.contains("://")) s = s.section("://", 1);
+                    if (s.contains('/')) s = s.section('/', 0, 0);
+                    if (s.contains(':')) s = s.section(':', 0, 0);
+                    if (!s.isEmpty()) cleanDomain += s;
+                }
+                rule["domain"] = cleanDomain;
+            }
+            if (rule.contains("process_name")) {
+                QJsonArray cleanProc;
+                for (const auto &v: rule.value("process_name").toArray()) {
+                    auto p = v.toString().trimmed();
+                    if (p.isEmpty()) continue;
+                    cleanProc += p;
+#ifndef Q_OS_WIN
+                    if (p.endsWith(".exe", Qt::CaseInsensitive)) {
+                        cleanProc += p.left(p.length() - 4);
+                    }
+#endif
+                }
+                rule["process_name"] = cleanProc;
+            }
 
             const bool hasDomain = rule.contains("domain_suffix") || rule.contains("domain") ||
                                    rule.contains("domain_keyword") || rule.contains("domain_regex");
@@ -1041,9 +1174,10 @@ namespace NekoGui {
         }
 
         QJsonArray normalizedRules;
+        QJSONARRAY_ADD(normalizedRules, bucketSystem)
         QJSONARRAY_ADD(normalizedRules, bucketServerSites)
-        QJSONARRAY_ADD(normalizedRules, bucketServerApps)
         QJSONARRAY_ADD(normalizedRules, bucketSites)
+        QJSONARRAY_ADD(normalizedRules, bucketServerApps)
         QJSONARRAY_ADD(normalizedRules, bucketApps)
         QJSONARRAY_ADD(normalizedRules, bucketOther)
         auto routeObj = QJsonObject{

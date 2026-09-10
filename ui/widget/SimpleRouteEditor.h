@@ -35,8 +35,8 @@ private:
         QComboBox *server = nullptr;
     };
 
-    ListPage makeDomainPage(QWidget *parent, const QString &placeholder);
-    ListPage makeAppPage(QWidget *parent, const QString &placeholder);
+    ListPage makeDomainPage(QWidget *parent, const QString &placeholder, ListPage *opposing = nullptr);
+    ListPage makeAppPage(QWidget *parent, const QString &placeholder, ListPage *opposing = nullptr);
     ServerMapPage makeServerDomainPage(QWidget *parent);
     ServerMapPage makeServerAppPage(QWidget *parent);
 
@@ -44,6 +44,7 @@ private:
     void addServerMapRow(QListWidget *list, const QString &matcher, int profileId);
     static void removeSelected(QListWidget *list);
     static void addListRow(QListWidget *list, const QString &text);
+    static void removeMatching(QListWidget *list, const QString &text);
     static QJsonArray collectList(QListWidget *list);
     static QString profileOutboundTag(int profileId);
     static int profileIdFromOutboundTag(const QString &tag);
