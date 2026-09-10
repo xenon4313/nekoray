@@ -112,7 +112,6 @@ private:
     TrafficSparkline *heroChart = nullptr;
     QLabel *heroTitle = nullptr;
     QLabel *heroSub = nullptr; // status under the hero block
-    QLabel *heroLegend = nullptr;
 
 
 
