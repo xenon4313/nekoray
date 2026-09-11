@@ -1,31 +1,83 @@
-# NekoBox
+# English | [#Русский](https://github.com/xenon4313/nekoray/blob/main/README_RU.md) 
 
-<img src="https://raw.githubusercontent.com/r3t4rd/nekoray/refs/heads/main/ahertaw34a3.jpg" width="1234" alt="NekoBox screenshot"/>
+# NekoBox (sing-box 1.14 Fork)
 
-Qt-based cross-platform GUI proxy configuration manager. Backend: **sing-box**.
+<img src="https://pu.yufu.su/2yYFkWZi.png" width="1234" alt="NekoBox screenshot"/>
 
-This repository is a maintained fork of [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray), published as **[r3t4rd/nekoray](https://github.com/r3t4rd/nekoray)**.
+Qt-based cross-platform GUI proxy configuration manager. Backend: **sing-box 1.14.0**.
 
-**Current release version:** `5-2026-07-31.3`  
+This repository is an enhanced, maintained fork of [r3t4rd/nekoray](https://github.com/r3t4rd/nekoray) and [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray), tailored for high performance, modern protocol support, and refined desktop UX.
+
+**Current release version:** `1.2-singbox-1.14.0`  
 **Supported platforms:** Windows x64 (portable ZIP), Linux
 
 ---
 
-## Download
+## Key Features & Enhancements
 
-Portable builds (no installer). Extract and run `nekobox.exe` (Windows) or the packaged binary (Linux).
+* **sing-box 1.14.0 Engine**:
+  * Full integration with sing-box 1.14.0 with upgraded DNS routing schema.
+  * Automatic migration and backward compatibility with legacy inbound definitions (`sniffing`, `domain_strategy`).
+  * Enhanced **Hysteria 2** support with `gecko:password[:min[:max]]` obfuscation.
+* **Simple Mode UI**:
+  * Dark glassmorphism layout with live sparkline traffic monitor.
+  * Instant server switching, automated latency testing, and quick power toggle.
+* **Visual Theme & Wallpaper Selector**:
+  * Built-in curated presets (Taiga Aisaka, City Life, Kana Arima, Yuu Koito).
+  * Custom background loading with intelligent **Aspect-Fill (Cover)** scaling (no image stretching or distortion).
+* **Connection Rules & Running Process Selector**:
+  * Friendly rule editor for split routing: Direct/Proxy sites, Direct/Proxy apps, and per-server routing.
+  * **Running Apps Picker (`Running…`)**: Inspect live processes with native application icons, window titles, instance counts, and real-time search filtering.
+* **Details Panel Quick-Routing (Context Menu)**:
+  * Right-click any active connection in the **Details** tab to immediately add an application or domain to Direct or Proxy rules.
+  * Interactive prompt with one-click tunnel restart to apply new rules on the fly.
 
-**Releases:** https://github.com/r3t4rd/nekoray/releases
+---
 
-Windows asset naming example:
+## Download & Installation
 
-```text
-nekoray-5-2026-07-31.3-windows64.zip
+**Releases on GitHub:** https://github.com/xenon4313/nekoray/releases
+
+### 🐧 Linux
+
+#### Arch Linux / Manjaro / EndeavourOS
+Install the prebuilt `.pkg.tar.zst` package via `pacman`:
+```bash
+sudo pacman -U nekobox-bin-1.1-x86_64.pkg.tar.zst
+```
+Or build locally from AUR sources:
+```bash
+cd release/aur && makepkg -si
 ```
 
-If Windows reports missing DLLs, install the [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+#### Debian / Ubuntu / Linux Mint / Pop!_OS
+Install the official `.deb` package:
+```bash
+sudo apt install ./nekobox_1.1_amd64.deb
+# or
+sudo dpkg -i nekobox_1.1_amd64.deb && sudo apt -f install
+```
 
-Do not remove `nekobox_core.exe` or the `geo*` files next to the GUI.
+#### Generic Linux (Universal Portable & Installer)
+Extract the portable bundle and run the universal installer:
+```bash
+tar -xzf nekobox-1.1-linux64.tar.gz
+cd nekobox-linux64
+sudo ./install.sh
+```
+> [!TIP]
+> The installers automatically configure Polkit rules (`99-nekobox.rules`) and `cap_net_admin=ep` capabilities for `nekobox_core`. This allows activating TUN/VPN mode **without entering the root password**.
+
+### 🪟 Windows
+
+Portable builds (no installer required). Extract the archive and launch `nekobox.exe`:
+```text
+nekobox-5.4.1-singbox-1.14.0-windows64.zip
+```
+If Windows reports missing DLLs on a clean machine, install the [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+
+> [!IMPORTANT]
+> Do not remove `nekobox_core.exe` (or `nekobox_core` on Linux) and the `geo*` database files located next to `nekobox`.
 
 ---
 
@@ -33,12 +85,13 @@ Do not remove `nekobox_core.exe` or the `geo*` files next to the GUI.
 
 | File | Role |
 |------|------|
-| `nekobox.exe` | Qt GUI |
-| `nekobox_core.exe` | sing-box core + gRPC control plane |
+| `nekobox.exe` | Qt 6 GUI client with Simple Mode & Theme Selector |
+| `nekobox_core.exe` | sing-box 1.14.0 core + gRPC control plane |
 | `updater.exe` | In-app update helper |
-| `geoip.dat` / `geosite.dat` | v2ray-style routing lists |
-| `geoip.db` / `geosite.db` | sing-box routing databases |
-| Qt / OpenSSL DLLs | Runtime (Windows portable) |
+| `geoip.dat` / `geosite.dat` | v2ray-compatible routing lists |
+| `geoip.db` / `geosite.db` | High-speed sing-box binary routing databases |
+| Qt / OpenSSL DLLs | Runtime dependencies (Windows portable package) |
+| `ver1.jpg` .. `ver4.jpg` | Preset artwork backgrounds for Theme Selector |
 
 ---
 
@@ -48,99 +101,80 @@ Do not remove `nekobox_core.exe` or the `geo*` files next to the GUI.
 
 | Component | Source | Notes |
 |-----------|--------|--------|
-| GUI (NekoBox) | this repo (`r3t4rd/nekoray`) | C++17, CMake, Ninja, MSVC on Windows |
-| Upstream project | [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray) | Original NekoRay / NekoBox |
-| Core wrapper | `go/cmd/nekobox_core` | Builds `nekobox_core` |
-| Updater | `go/cmd/updater` | Builds `updater` |
-| gRPC bridge | `go/grpc_server` | GUI ↔ core control API |
-| Version stamp | `nekoray_version.txt` | Embedded at build time (`NKR_VERSION` / Go ldflags) |
-| Auto-update API | GitHub Releases of **r3t4rd/nekoray** | `https://api.github.com/repos/r3t4rd/nekoray/releases` |
+| GUI (NekoBox) | this repository | C++17, CMake, Ninja, MSVC on Windows |
+| Upstream project | [r3t4rd/nekoray](https://github.com/r3t4rd/nekoray) / [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray) | Base GUI and features |
+| Core wrapper | `go/cmd/nekobox_core` | Builds `nekobox_core.exe` |
+| Updater | `go/cmd/updater` | Builds `updater.exe` |
+| gRPC bridge | `go/grpc_server` | Protobuf-based GUI ↔ core control interface |
+| Process Inspector | `ProcessSelectDialog` | Win32 Toolhelp32 + Shell API process enumeration |
+| Version stamp | `nekoray_version.txt` | Embedded at compile time (`NKR_VERSION` / Go ldflags) |
 
 ### Core (proxy engine)
 
 | Component | Source | Version / branch |
 |-----------|--------|------------------|
-| **sing-box** | [MatsuriDayo/sing-box](https://github.com/MatsuriDayo/sing-box) (`1.12.x`) | **`1.12.19-neko-1`** |
-| Upstream sing-box | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) | Base project |
-| **libneko** | [MatsuriDayo/libneko](https://github.com/MatsuriDayo/libneko) | Shared Go helpers / version helpers |
-| Go toolchain | Go **1.23+** (local builds may use Go 1.22.12+) | See `go/cmd/nekobox_core/go.mod` |
+| **sing-box** | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) | **`1.14.0`** (with custom legacy inbound & gecko patches) |
+| Upstream sing-box | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) | Core project |
+| **libneko** | [MatsuriDayo/libneko](https://github.com/MatsuriDayo/libneko) | Shared Go helpers & speedtest routines |
+| Go toolchain | Go **1.23+** | |
 
-**Core build tags** (Windows deploy / `deploy_windows64.ps1`):
+**Core build tags**:
 
 ```text
 with_clash_api,with_gvisor,with_quic,with_wireguard,with_utls
 ```
 
-> Note: `with_ech` is no longer used — ECH is covered by the Go stdlib in sing-box 1.12+.
+Local `replace` paths in `go/cmd/nekobox_core/go.mod`:
 
-Local `replace` paths used when building the core:
-
-- `github.com/sagernet/sing-box` → sibling `sing-box` checkout  
-- `github.com/matsuridayo/libneko` → sibling `libneko` checkout  
+- `github.com/sagernet/sing-box => ../../../../sing-box`
+- `github.com/matsuridayo/libneko => ../../../../libneko`
 
 ### GUI framework & C++ libraries
 
 | Library | Source | Version / usage |
 |---------|--------|-----------------|
-| **Qt** | [Qt](https://www.qt.io/) | **Qt 6** (Widgets, Network, Svg, LinguistTools); Windows release uses Qt 6.5.x SDK |
+| **Qt** | [Qt](https://www.qt.io/) | **Qt 6** (Widgets, Gui, Network, Svg, LinguistTools) |
 | **protobuf** | [protocolbuffers/protobuf](https://github.com/protocolbuffers/protobuf) | **v21.4** (static, via `libs/deps`) |
-| **gRPC / myproto** | generated from project `.proto` | GUI ↔ `nekobox_core` |
+| **gRPC / myproto** | generated from `.proto` | GUI ↔ `nekobox_core` IPC |
 | **yaml-cpp** | [jbeder/yaml-cpp](https://github.com/jbeder/yaml-cpp) | **0.7.0** |
-| **zxing-cpp** | [nu-book/zxing-cpp](https://github.com/nu-book/zxing-cpp) | **v2.0.0** (QR import) |
+| **zxing-cpp** | [nu-book/zxing-cpp](https://github.com/nu-book/zxing-cpp) | **v2.0.0** (QR code scanning & import) |
 | **QHotkey** | [Skycoder42/QHotkey](https://github.com/Skycoder42/QHotkey) | Vendored under `3rdparty/QHotkey` |
-| **OpenSSL 3** | Bundled with Qt SDK / deploy | `libcrypto-3-x64.dll`, `libssl-3-x64.dll` on Windows |
-| CMake / Ninja / MSVC | Build tools | VS 2022 Build Tools on Windows |
+| **OpenSSL 3** | OpenSSL | `libcrypto-3-x64.dll`, `libssl-3-x64.dll` |
+| Build Tools | Microsoft / Ninja / CMake | Visual Studio 2022 Build Tools (x64) |
 
-Dependency build helpers in-tree: `build_deps.bat`, `build_deps2.bat`, `build_protobuf.bat`, `libs/deps/`.
-
-### Geodata (downloaded at package time)
+### Geodata (routing rule databases)
 
 | File | Upstream |
 |------|----------|
-| `geoip.dat` | [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat) (latest release) |
-| `geosite.dat` | [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community) (`dlc.dat`) |
-| `geoip.db` | [SagerNet/sing-geoip](https://github.com/SagerNet/sing-geoip) (latest release) |
-| `geosite.db` | [SagerNet/sing-geosite](https://github.com/SagerNet/sing-geosite) (latest release) |
-
-### Packaging (Windows)
-
-| Tool / script | Purpose |
-|---------------|---------|
-| `deploy_windows64.ps1` | Build core + GUI, `windeployqt`, fetch geodata, zip release |
-| `windeployqt` | Qt DLL deployment |
-| Output layout | `deployment/windows64/` and `deployment/nekoray-*-windows64.zip` |
-
-Release ZIP layout expected by the updater: top-level folder `nekoray/`.
+| `geoip.dat` | [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat) |
+| `geosite.dat` | [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community) |
+| `geoip.db` | [SagerNet/sing-geoip](https://github.com/SagerNet/sing-geoip) |
+| `geosite.db` | [SagerNet/sing-geosite](https://github.com/SagerNet/sing-geosite) |
 
 ---
 
-## Supported proxies
+## Supported Protocols & Features
 
-- SOCKS (4 / 4a / 5)
-- HTTP(S)
-- Shadowsocks
-- VMess
-- VLESS
-- Trojan
-- TUIC (sing-box)
-- Hysteria2 (sing-box)
-- NaïveProxy (custom core)
-- Custom outbound / custom config / custom core
-- Proxy chains
-
-## Subscriptions
-
-Raw subscription formats commonly used by Shadowsocks, Clash, and v2rayN clients.
+* **SOCKS5 / HTTP(S)**
+* **Shadowsocks** (including 2022 AEAD ciphers)
+* **VMess** & **VLESS** (with Reality, gRPC, WebSocket)
+* **Trojan**
+* **Hysteria 2** (with `gecko` protocol obfuscation)
+* **TUIC**
+* **WireGuard**
+* **Tun / VPN Mode** (gVisor & system stack)
+* **Proxy Chains** & Custom Core configurations
+* **Subscription Formats**: Base64, Clash, SIP002, v2rayN
 
 ---
 
-## Run flags
+## Run Flags
 
 See [docs/RunFlags.md](docs/RunFlags.md).
 
 ## Build
 
-Technical docs:
+Technical documentation:
 
 - [docs/readme.md](docs/readme.md) — index
 - [docs/Build_Windows.md](docs/Build_Windows.md) — Windows GUI
@@ -148,18 +182,12 @@ Technical docs:
 - [docs/Build_Core.md](docs/Build_Core.md) — Go core (`sing-box` + `libneko`)
 - [docs/Run_Linux.md](docs/Run_Linux.md) — Linux runtime notes
 
-For a full Windows x64 portable package from this tree, use:
-
-```powershell
-.\deploy_windows64.ps1
-```
-
-Typical sibling directory layout for the Go core:
+Typical sibling directory layout for building the Go core:
 
 ```text
 Working/
-  nekobox/          # this repo (GUI + go/cmd/*)
-  sing-box/         # MatsuriDayo/sing-box @ 1.12.19-neko-1
+  nekobox/          # this repository (GUI + go/cmd/*)
+  sing-box/         # SagerNet/sing-box @ 1.14.0 with patches
   libneko/          # MatsuriDayo/libneko
 ```
 
@@ -167,31 +195,25 @@ Working/
 
 ## Credits
 
-**Core**
+**Core Engine**
+* [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
+* [MatsuriDayo/sing-box](https://github.com/MatsuriDayo/sing-box)
+* [MatsuriDayo/libneko](https://github.com/MatsuriDayo/libneko)
 
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-- [MatsuriDayo/sing-box](https://github.com/MatsuriDayo/sing-box) (`1.12.19-neko-1`)
-- [MatsuriDayo/libneko](https://github.com/MatsuriDayo/libneko)
+**GUI & Architecture**
+* [r3t4rd/nekoray](https://github.com/r3t4rd/nekoray) (Simple Mode & modern styling)
+* [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray) (upstream project)
+* [Qv2ray](https://github.com/Qv2ray/Qv2ray) (historical UI inspiration)
+* [Qt Project](https://www.qt.io/)
+* [Skycoder42/QHotkey](https://github.com/Skycoder42/QHotkey)
 
-**GUI & tooling**
-
-- [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray) (upstream)
-- [Qv2ray](https://github.com/Qv2ray/Qv2ray) (historical GUI inspiration)
-- [Qt](https://www.qt.io/)
-- [protobuf](https://github.com/protocolbuffers/protobuf)
-- [yaml-cpp](https://github.com/jbeder/yaml-cpp)
-- [zxing-cpp](https://github.com/nu-book/zxing-cpp)
-- [QHotkey](https://github.com/Skycoder42/QHotkey)
-
-**Geodata**
-
-- [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)
-- [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
-- [SagerNet/sing-geoip](https://github.com/SagerNet/sing-geoip)
-- [SagerNet/sing-geosite](https://github.com/SagerNet/sing-geosite)
+**Geodata Providers**
+* [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)
+* [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
+* [SagerNet/sing-geoip](https://github.com/SagerNet/sing-geoip) & [sing-geosite](https://github.com/SagerNet/sing-geosite)
 
 ---
 
 ## License
 
-See the repository license files and the licenses of third-party components listed above.
+This project is licensed under GPLv3 / Apache 2.0 in compliance with upstream licenses. See individual source files and submodule directories for third-party license texts.
