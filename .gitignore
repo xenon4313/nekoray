@@ -88,3 +88,6 @@ out
 /go1.22.12
 /libs/yaml-cpp-yaml-cpp-0.7.0
 *.zip
+
+/build_test
+*.dmp

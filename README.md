@@ -1,12 +1,14 @@
+# English | [#Русский](https://github.com/xenon4313/nekoray/blob/main/README_RU.md) 
+
 # NekoBox (sing-box 1.14 Fork)
 
-<img src="https://raw.githubusercontent.com/r3t4rd/nekoray/refs/heads/main/ahertaw34a3.jpg" width="1234" alt="NekoBox screenshot"/>
+<img src="https://pu.yufu.su/2yYFkWZi.png" width="1234" alt="NekoBox screenshot"/>
 
 Qt-based cross-platform GUI proxy configuration manager. Backend: **sing-box 1.14.0**.
 
 This repository is an enhanced, maintained fork of [r3t4rd/nekoray](https://github.com/r3t4rd/nekoray) and [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray), tailored for high performance, modern protocol support, and refined desktop UX.
 
-**Current release version:** `5.4.1-singbox-1.14.0`  
+**Current release version:** `1.2-singbox-1.14.0`  
 **Supported platforms:** Windows x64 (portable ZIP), Linux
 
 ---
@@ -32,23 +34,50 @@ This repository is an enhanced, maintained fork of [r3t4rd/nekoray](https://gith
 
 ---
 
-## Download
+## Download & Installation
 
-Portable builds (no installer required). Extract and run `nekobox.exe`.
+**Releases on GitHub:** https://github.com/xenon4313/nekoray/releases
 
-**Releases:** https://github.com/r3t4rd/nekoray/releases
+### 🐧 Linux
 
-Windows asset naming example:
-
-```text
-nekobox-5.4.1-singbox-1.14.0-windows64.zip
-nekobox-portable-windows64.zip
+#### Arch Linux / Manjaro / EndeavourOS
+Install the prebuilt `.pkg.tar.zst` package via `pacman`:
+```bash
+sudo pacman -U nekobox-bin-1.1-x86_64.pkg.tar.zst
+```
+Or build locally from AUR sources:
+```bash
+cd release/aur && makepkg -si
 ```
 
+#### Debian / Ubuntu / Linux Mint / Pop!_OS
+Install the official `.deb` package:
+```bash
+sudo apt install ./nekobox_1.1_amd64.deb
+# or
+sudo dpkg -i nekobox_1.1_amd64.deb && sudo apt -f install
+```
+
+#### Generic Linux (Universal Portable & Installer)
+Extract the portable bundle and run the universal installer:
+```bash
+tar -xzf nekobox-1.1-linux64.tar.gz
+cd nekobox-linux64
+sudo ./install.sh
+```
+> [!TIP]
+> The installers automatically configure Polkit rules (`99-nekobox.rules`) and `cap_net_admin=ep` capabilities for `nekobox_core`. This allows activating TUN/VPN mode **without entering the root password**.
+
+### 🪟 Windows
+
+Portable builds (no installer required). Extract the archive and launch `nekobox.exe`:
+```text
+nekobox-5.4.1-singbox-1.14.0-windows64.zip
+```
 If Windows reports missing DLLs on a clean machine, install the [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 
 > [!IMPORTANT]
-> Do not remove `nekobox_core.exe` or the `geo*` database files located next to `nekobox.exe`.
+> Do not remove `nekobox_core.exe` (or `nekobox_core` on Linux) and the `geo*` database files located next to `nekobox`.
 
 ---
 
