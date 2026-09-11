@@ -117,8 +117,22 @@ SimpleModeWidget::SimpleModeWidget(QWidget *parent) : QWidget(parent) {
 
 
 
+    heroLegend = new QLabel(overlay);
+    heroLegend->setAlignment(Qt::AlignCenter);
+    heroLegend->setText(QStringLiteral(
+        "<span style='color:%1'>P↑</span> "
+        "<span style='color:%2'>P↓</span> "
+        "<span style='color:%3'>D↑</span> "
+        "<span style='color:%4'>D↓</span>")
+                            .arg(TrafficSparkline::colorProxyUp().name(),
+                                 TrafficSparkline::colorProxyDown().name(),
+                                 TrafficSparkline::colorDirectUp().name(),
+                                 TrafficSparkline::colorDirectDown().name()));
+    heroLegend->setStyleSheet("font-size: 10px; font-weight: 600; background: transparent;");
+
     overlayLay->addStretch(1);
     overlayLay->addWidget(heroTitle);
+    overlayLay->addWidget(heroLegend);
     overlayLay->addStretch(1);
 
 

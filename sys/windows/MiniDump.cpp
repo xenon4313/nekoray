@@ -55,17 +55,18 @@ LONG __stdcall CreateCrashHandler(EXCEPTION_POINTERS *pException) {
                 dumpText = "";
             }
             // 创建消息提示
-            QMessageBox::warning(NULL, "Application crashed",
-                                 QStringLiteral("ErrorCode: %1 ErrorAddr:%2 ErrorFlag: %3 ErrorPara: %4\nVersion: %5\nDump file at %6")
-                                     .arg(errCode)
-                                     .arg(errAddr)
-                                     .arg(errFlag)
-                                     .arg(errPara)
-                                     .arg(NKR_VERSION)
-                                     .arg(dumpText),
-                                 QMessageBox::Ok);
+            auto crashMsg = QStringLiteral("ErrorCode: %1 ErrorAddr: %2 ErrorFlag: %3 ErrorPara: %4\nVersion: %5\nDump file at %6")
+                                .arg(errCode)
+                                .arg(errAddr)
+                                .arg(errFlag)
+                                .arg(errPara)
+                                .arg(NKR_VERSION)
+                                .arg(dumpText);
+            ::MessageBoxW(NULL, (LPCWSTR) crashMsg.utf16(), L"Application crashed", MB_OK | MB_ICONERROR | MB_SYSTEMMODAL | MB_TOPMOST);
+            TerminateProcess(GetCurrentProcess(), 1);
         }
     }
+    TerminateProcess(GetCurrentProcess(), 1);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 

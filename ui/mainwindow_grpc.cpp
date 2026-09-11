@@ -472,8 +472,12 @@ void MainWindow::neko_stop(bool crash, bool sem) {
         if (NekoGui::dataStore->traffic_loop_interval != 0) {
             NekoGui_traffic::trafficLooper->UpdateAll();
             for (const auto &item: NekoGui_traffic::trafficLooper->items) {
-                NekoGui::profileManager->GetProfile(item->id)->Save();
-                runOnUiThread([=] { refresh_proxy_list(item->id); });
+                if (!item || item->id < 0) continue;
+                auto profile = NekoGui::profileManager->GetProfile(item->id);
+                if (profile) {
+                    profile->Save();
+                    runOnUiThread([=] { refresh_proxy_list(item->id); });
+                }
             }
         }
         NekoGui_traffic::trafficLooper->loop_mutex.unlock();
