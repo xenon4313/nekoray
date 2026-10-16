@@ -23,7 +23,7 @@ This repository is an enhanced, maintained fork of [r3t4rd/nekoray](https://gith
   * Dark glassmorphism layout with live sparkline traffic monitor.
   * Instant server switching, automated latency testing, and quick power toggle.
 * **Visual Theme & Wallpaper Selector**:
-  * Built-in curated presets (Taiga Aisaka, City Life, Kana Arima, Yuu Koito).
+  * Built-in curated presets (Taiga Aisaka, City Life, Kana Arima).
   * Custom background loading with intelligent **Aspect-Fill (Cover)** scaling (no image stretching or distortion).
 * **Connection Rules & Running Process Selector**:
   * Friendly rule editor for split routing: Direct/Proxy sites, Direct/Proxy apps, and per-server routing.
